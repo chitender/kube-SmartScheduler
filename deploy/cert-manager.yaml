@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: smart-scheduler-selfsigned-issuer
+  namespace: smart-scheduler-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: smart-scheduler-serving-cert
+  namespace: smart-scheduler-system
+spec:
+  dnsNames:
+  - smart-scheduler-webhook-service.smart-scheduler-system.svc
+  - smart-scheduler-webhook-service.smart-scheduler-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: smart-scheduler-selfsigned-issuer
+  secretName: smart-scheduler-webhook-certs
+  subject:
+    organizationalUnits:
+    - smart-scheduler 

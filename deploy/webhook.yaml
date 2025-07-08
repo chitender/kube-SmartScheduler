@@ -16,22 +16,26 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionWebhook
 metadata:
   name: smart-scheduler-mutating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: smart-scheduler-system/smart-scheduler-serving-cert
 spec:
-  clientConfig:
-    service:
-      name: smart-scheduler-webhook-service
-      namespace: smart-scheduler-system
-      path: "/mutate-v1-pod"
-  rules:
-  - operations: ["CREATE", "UPDATE"]
-    apiGroups: [""]
-    apiVersions: ["v1"]
-    resources: ["pods"]
-  admissionReviewVersions: ["v1"]
-  sideEffects: None
-  failurePolicy: Ignore
-  namespaceSelector:
-    matchExpressions:
-    - key: name
-      operator: NotIn
-      values: ["kube-system", "smart-scheduler-system"] 
+  webhooks:
+  - name: mpod.smart-scheduler.io
+    clientConfig:
+      service:
+        name: smart-scheduler-webhook-service
+        namespace: smart-scheduler-system
+        path: "/mutate-v1-pod"
+    rules:
+    - operations: ["CREATE", "UPDATE"]
+      apiGroups: [""]
+      apiVersions: ["v1"]
+      resources: ["pods"]
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Ignore
+    namespaceSelector:
+      matchExpressions:
+      - key: name
+        operator: NotIn
+        values: ["kube-system", "smart-scheduler-system", "cert-manager"] 
