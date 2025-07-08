@@ -1,0 +1,20 @@
+apiVersion: v2
+name: smart-scheduler
+description: A Kubernetes operator for intelligent pod placement with weighted scheduling strategies
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - scheduler
+  - placement
+  - operator
+  - webhook
+home: https://github.com/kube-smartscheduler/smart-scheduler
+sources:
+  - https://github.com/kube-smartscheduler/smart-scheduler
+maintainers:
+  - name: SmartScheduler Team
+    email: team@smartscheduler.io
+annotations:
+  category: Infrastructure 

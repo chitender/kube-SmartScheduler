@@ -1,54 +1,74 @@
-# SmartScheduler - Kubernetes Intelligent Pod Placement Operator
+# SmartScheduler
 
-SmartScheduler is a Kubernetes operator that provides intelligent pod placement using custom annotations to implement sophisticated scheduling strategies including base counts and weighted distributions across different node types.
+A production-ready Kubernetes operator for intelligent pod placement with weighted scheduling strategies, automatic rebalancing, and centralized policy management.
 
-## Features
+## 🚀 Features
 
-- **Custom Annotation-Based Scheduling**: Define placement strategies using simple annotations on Deployments
-- **Base Count Placement**: Ensure a minimum number of pods are placed on preferred nodes
-- **Weighted Distribution**: Distribute remaining pods across node types using configurable weights
-- **Dynamic Tracking**: Real-time tracking of pod distribution across node selectors
-- **Fail-Safe Operation**: Graceful fallback to default Kubernetes scheduling if strategies fail
-- **Production Ready**: Built with controller-runtime, includes health checks, metrics, and proper RBAC
+### Core Functionality
+- **Intelligent Pod Placement**: Weighted distribution across node types (on-demand/spot, zones, etc.)
+- **Base Count Guarantees**: Ensure minimum pods on preferred nodes before distribution
+- **Atomic State Management**: ConfigMap-based state tracking with conflict resolution
+- **Automatic Rebalancing**: Drift detection and corrective actions when placement deviates
+- **Enhanced Error Handling**: Graceful fallback to default scheduling on failures
 
-## Architecture
+### Advanced Features
+- **Pod Affinity/Anti-Affinity**: Beyond simple nodeSelector, support for complex placement rules
+- **CRD-Based Policies**: Centralized `PodPlacementPolicy` CRD for enterprise management
+- **Priority-Based Policies**: Multiple policies with priority handling and conflict resolution
+- **Real-time Monitoring**: Comprehensive metrics and health endpoints
+- **Production Ready**: Helm charts, RBAC, security contexts, and multi-namespace support
 
-SmartScheduler consists of:
-
-1. **Mutating Admission Webhook**: Intercepts pod creation and applies placement logic
-2. **Controller**: Watches Deployments and manages webhook configurations
-3. **Placement Engine**: Parses strategies and calculates optimal pod placement
-4. **Certificate Management**: Automatic TLS certificate handling via cert-manager
-
-## Quick Start
+## 📦 Installation
 
 ### Prerequisites
+- Kubernetes 1.19+ cluster
+- cert-manager (for automatic TLS certificate management)
+- Helm 3.0+ (for Helm installation)
 
-- Kubernetes cluster (v1.20+)
-- kubectl configured
-- cert-manager installed (for automatic certificate management)
+### Option 1: Helm Installation (Recommended)
 
-### Installation
-
-1. **Install cert-manager** (if not already installed):
 ```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+# Add the SmartScheduler Helm repository
+helm repo add smart-scheduler https://smart-scheduler.github.io/helm-charts
+helm repo update
+
+# Install with default values
+helm install smart-scheduler smart-scheduler/smart-scheduler \
+  --namespace smart-scheduler-system \
+  --create-namespace
+
+# Install with custom values
+helm install smart-scheduler smart-scheduler/smart-scheduler \
+  --namespace smart-scheduler-system \
+  --create-namespace \
+  --values custom-values.yaml
 ```
 
-2. **Deploy SmartScheduler**:
+### Option 2: Direct Kubernetes Manifests
+
 ```bash
+# Clone the repository
+git clone https://github.com/kube-smartscheduler/smart-scheduler.git
+cd smart-scheduler
+
+# Apply the manifests
 kubectl apply -f deploy/
 ```
 
-3. **Verify installation**:
+### Option 3: Local Development Build
+
 ```bash
-kubectl get pods -n smart-scheduler-system
-kubectl get mutatingwebhookconfiguration smart-scheduler-mutating-webhook
+# Build and deploy locally
+make build
+make docker-build IMG=smart-scheduler:latest
+make deploy IMG=smart-scheduler:latest
 ```
 
-### Usage
+## 🎯 Quick Start
 
-Add the scheduling strategy annotation to your Deployment:
+### 1. Annotation-Based Usage (Simple)
+
+Add annotations to your Deployment to enable smart scheduling:
 
 ```yaml
 apiVersion: apps/v1
@@ -56,9 +76,9 @@ kind: Deployment
 metadata:
   name: web-app
   annotations:
-    smart-scheduler.io/schedule-strategy: "base=1,weight=1,nodeSelector=node-type:ondemand;weight=2,nodeSelector=node-type:spot"
+    smart-scheduler.io/schedule-strategy: "base=2,weight=1,nodeSelector=node-type:ondemand;weight=3,nodeSelector=node-type:spot"
 spec:
-  replicas: 6
+  replicas: 10
   selector:
     matchLabels:
       app: web-app
@@ -70,168 +90,401 @@ spec:
       containers:
       - name: web
         image: nginx:1.21
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
 ```
 
-This strategy will:
-- Place the first pod on `node-type: ondemand` nodes (base=1)
-- Distribute remaining 5 pods with a 1:2 ratio between ondemand and spot nodes
-- Result: 1 base + 2 ondemand + 3 spot = 6 total pods
+**Result**: 
+- First 2 pods → on-demand nodes (base guarantee)
+- Remaining 8 pods → distributed 1:3 ratio = 2 on-demand + 6 spot
+- **Final distribution**: 4 on-demand, 6 spot
 
-## Annotation Format
+### 2. CRD-Based Usage (Enterprise)
 
-The `smart-scheduler.io/schedule-strategy` annotation uses this format:
+Create centralized placement policies using the `PodPlacementPolicy` CRD:
 
+```yaml
+apiVersion: smartscheduler.io/v1
+kind: PodPlacementPolicy
+metadata:
+  name: web-app-policy
+  namespace: production
+spec:
+  enabled: true
+  priority: 100
+  selector:
+    matchLabels:
+      tier: web
+  strategy:
+    base: 2
+    rules:
+    - name: "on-demand-nodes"
+      weight: 1
+      nodeSelector:
+        node-type: ondemand
+      description: "Reliable on-demand instances for base capacity"
+    - name: "spot-nodes"
+      weight: 3
+      nodeSelector:
+        node-type: spot
+      affinity:
+      - type: "anti-affinity"
+        labelSelector:
+          app: web-app
+        topologyKey: "kubernetes.io/hostname"
+        requiredDuringScheduling: false
+      description: "Cost-effective spot instances for scale-out"
+    rebalancePolicy:
+      enabled: true
+      driftThreshold: 15.0
+      checkInterval: 5m
+      maxPodsPerRebalance: 2
 ```
-base=<count>,weight=<weight>,nodeSelector=<key>:<value>[,<key>:<value>];weight=<weight>,nodeSelector=<key>:<value>
-```
 
-### Parameters
-
-- **base**: Number of pods to place using the first rule (minimum guaranteed)
-- **weight**: Relative weight for this node type in distribution
-- **nodeSelector**: Key-value pairs for node selection (use `:` for key-value, `,` for multiple pairs)
-
-### Examples
-
-**Example 1: Basic on-demand/spot distribution**
-```
-smart-scheduler.io/schedule-strategy: "base=2,weight=1,nodeSelector=node-type:ondemand;weight=3,nodeSelector=node-type:spot"
-```
-- 2 pods guaranteed on on-demand nodes
-- Remaining pods distributed 1:3 ratio (on-demand:spot)
-
-**Example 2: Multi-zone with instance types**
-```
-smart-scheduler.io/schedule-strategy: "base=1,weight=2,nodeSelector=zone:us-west-1a,node-type:ondemand;weight=1,nodeSelector=zone:us-west-1b,node-type:spot"
-```
-- 1 pod guaranteed in us-west-1a on on-demand
-- Remaining pods distributed 2:1 ratio between the zones
-
-**Example 3: GPU workload distribution**
-```
-smart-scheduler.io/schedule-strategy: "base=1,weight=1,nodeSelector=accelerator:nvidia-tesla-k80;weight=2,nodeSelector=accelerator:nvidia-tesla-v100"
-```
-- 1 pod guaranteed on K80 nodes
-- Remaining pods prefer V100 nodes with 1:2 ratio
-
-## How It Works
-
-1. **Deployment Creation**: User creates a Deployment with scheduling strategy annotation
-2. **Controller Watch**: SmartScheduler controller detects the annotation
-3. **Pod Interception**: When pods are created, the mutating webhook intercepts them
-4. **Strategy Parsing**: The webhook parses the annotation and determines placement
-5. **Pod Counting**: Current pod distribution is calculated by querying existing pods
-6. **Placement Decision**: Based on counts and weights, the optimal node selector is chosen
-7. **Pod Mutation**: The pod's nodeSelector is modified before creation
-
-## Development
-
-### Building
+Apply policies that automatically manage multiple deployments:
 
 ```bash
-# Build binary
-make build
+kubectl apply -f policy.yaml
 
-# Build Docker image
-make docker-build
-
-# Run tests
-make test
+# Check policy status
+kubectl get podplacementpolicy -n production
+kubectl describe podplacementpolicy web-app-policy -n production
 ```
 
-### Testing Locally
+## 🔧 Configuration
+
+### Helm Values Configuration
+
+```yaml
+# values.yaml
+replicaCount: 1
+
+image:
+  repository: smart-scheduler
+  tag: "v0.1.0"
+  pullPolicy: IfNotPresent
+
+# Feature toggles
+features:
+  crdPolicies: true
+  rebalancing: true
+  driftDetection: true
+  enhancedMetrics: true
+
+# Webhook configuration
+webhook:
+  enabled: true
+  failurePolicy: Fail
+  excludeNamespaces:
+    - kube-system
+    - cert-manager
+
+# Monitoring
+monitoring:
+  serviceMonitor:
+    enabled: true
+    scrapeInterval: 30s
+  prometheusRule:
+    enabled: true
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# Security
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+```
+
+### Environment Variables
+
+The operator supports several environment variables for configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENABLE_CRD_POLICIES` | Enable PodPlacementPolicy CRD support | `true` |
+| `ENABLE_REBALANCING` | Enable automatic rebalancing | `true` |
+| `ENABLE_DRIFT_DETECTION` | Enable placement drift detection | `true` |
+| `ENABLE_ENHANCED_METRICS` | Enable detailed metrics collection | `true` |
+| `WEBHOOK_CERT_DIR` | Directory for webhook certificates | `/tmp/k8s-webhook-server/serving-certs` |
+
+## 📊 Monitoring and Observability
+
+### Health Endpoints
+
+- **Health Check**: `GET /healthz` (port 8081)
+- **Readiness**: `GET /readyz` (port 8081)
+- **Metrics**: `GET /metrics` (port 8080)
+
+### Key Metrics
+
+SmartScheduler exposes comprehensive Prometheus metrics:
+
+```promql
+# Pod placement success rate
+smart_scheduler_pod_placements_total{status="success"}
+
+# Placement drift percentage
+smart_scheduler_placement_drift_percentage
+
+# Rebalancing actions
+smart_scheduler_rebalance_actions_total
+
+# Webhook response time
+smart_scheduler_webhook_duration_seconds
+
+# Policy application success
+smart_scheduler_policy_applications_total{policy="web-app-policy"}
+```
+
+### Grafana Dashboard
+
+Import our pre-built Grafana dashboard for comprehensive monitoring:
 
 ```bash
-# Generate certificates for local testing
-make generate-certs
+# Download dashboard JSON
+curl -O https://raw.githubusercontent.com/kube-smartscheduler/smart-scheduler/main/monitoring/grafana-dashboard.json
 
-# Run locally (requires kubeconfig)
-make run
+# Import in Grafana UI or via API
 ```
 
-### Custom Certificate Management
+## 🛠️ Advanced Usage
 
-If not using cert-manager, generate certificates manually:
+### Multi-Zone Placement
 
-```bash
-make generate-certs
-kubectl create secret tls smart-scheduler-webhook-certs \
-  --cert=config/certs/server.crt \
-  --key=config/certs/server.key \
-  -n smart-scheduler-system
+```yaml
+annotations:
+  smart-scheduler.io/schedule-strategy: "base=1,weight=2,nodeSelector=zone:us-west-1a;weight=2,nodeSelector=zone:us-west-1b;weight=1,nodeSelector=zone:us-west-1c"
 ```
 
-## Monitoring
+### GPU Workloads with Affinity
 
-SmartScheduler exposes metrics on `:8080/metrics`:
+```yaml
+apiVersion: smartscheduler.io/v1
+kind: PodPlacementPolicy
+metadata:
+  name: gpu-workload-policy
+spec:
+  selector:
+    matchLabels:
+      workload: gpu-intensive
+  strategy:
+    base: 0
+    rules:
+    - name: "gpu-nodes-preferred"
+      weight: 3
+      nodeSelector:
+        accelerator: nvidia-tesla-v100
+      affinity:
+      - type: "affinity"
+        labelSelector:
+          workload: gpu-intensive
+        topologyKey: "kubernetes.io/hostname"
+        requiredDuringScheduling: false
+    - name: "gpu-nodes-fallback"
+      weight: 1
+      nodeSelector:
+        accelerator: nvidia-tesla-k80
+```
 
-- `smart_scheduler_pods_placed_total`: Total pods placed by strategy
-- `smart_scheduler_placement_errors_total`: Total placement errors
-- `controller_runtime_*`: Standard controller-runtime metrics
+### Time-Based Rebalancing
 
-Health checks available:
-- `:8081/healthz`: Liveness probe
-- `:8081/readyz`: Readiness probe
+```yaml
+rebalancePolicy:
+  enabled: true
+  driftThreshold: 20.0
+  rebalanceWindow:
+    startTime: "02:00"
+    endTime: "04:00"
+    days: ["Mon", "Wed", "Fri"]
+    timezone: "UTC"
+```
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-**1. Webhook not intercepting pods**
+#### 1. Webhook Not Working
+
 ```bash
 # Check webhook configuration
-kubectl get mutatingwebhookconfiguration smart-scheduler-mutating-webhook -o yaml
+kubectl get mutatingwebhookconfiguration
 
-# Check webhook pod logs
-kubectl logs -n smart-scheduler-system deployment/smart-scheduler-controller-manager
-```
-
-**2. Certificate issues**
-```bash
 # Check certificate status
 kubectl get certificate -n smart-scheduler-system
-kubectl describe certificate smart-scheduler-serving-cert -n smart-scheduler-system
 
-# Check cert-manager logs
-kubectl logs -n cert-manager deployment/cert-manager
+# Check webhook logs
+kubectl logs -n smart-scheduler-system deployment/smart-scheduler -f
 ```
 
-**3. Pods not being placed correctly**
-```bash
-# Check pod annotations and nodeSelector
-kubectl get pod <pod-name> -o yaml | grep -A 10 -B 5 nodeSelector
+#### 2. Placement Not Applied
 
-# Check webhook logs for placement decisions
-kubectl logs -n smart-scheduler-system deployment/smart-scheduler-controller-manager | grep "placement"
+```bash
+# Check if deployment has annotations
+kubectl get deployment <name> -o yaml | grep annotations -A 5
+
+# Check operator logs
+kubectl logs -n smart-scheduler-system deployment/smart-scheduler -c manager
+
+# Verify RBAC permissions
+kubectl auth can-i update deployments --as=system:serviceaccount:smart-scheduler-system:smart-scheduler
+```
+
+#### 3. Policy Not Matching Deployments
+
+```bash
+# Check policy status
+kubectl describe podplacementpolicy <policy-name>
+
+# Verify label selectors
+kubectl get deployment <name> --show-labels
+
+# Check policy logs
+kubectl logs -n smart-scheduler-system deployment/smart-scheduler | grep "PodPlacementPolicyController"
 ```
 
 ### Debug Mode
 
-Enable debug logging:
-```bash
-kubectl set env deployment/smart-scheduler-controller-manager -n smart-scheduler-system LOG_LEVEL=debug
+Enable debug logging for detailed troubleshooting:
+
+```yaml
+# In Helm values
+logging:
+  level: debug
+  development: true
+
+# Or via environment variable
+development:
+  debug: true
 ```
 
-## Contributing
+## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make changes and add tests
-4. Ensure all tests pass: `make test`
-5. Submit a pull request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-## License
+### Development Setup
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```bash
+# Clone repository
+git clone https://github.com/kube-smartscheduler/smart-scheduler.git
+cd smart-scheduler
 
-## Roadmap
+# Install dependencies
+go mod download
 
-- [ ] Support for StatefulSets and Jobs
-- [ ] Topology-aware scheduling (zones, regions)
-- [ ] Cost-aware scheduling with spot pricing integration
-- [ ] Web UI for managing placement strategies
-- [ ] Integration with cluster-autoscaler
-- [ ] Custom Resource Definitions for advanced policies
-- [ ] Prometheus alerting rules
-- [ ] Helm chart packaging
-SmartScheduler: An intelligent Kubernetes operator that dynamically assigns pods to nodes based on custom weights, base counts, and label-based placement strategies for optimal workload distribution.
+# Run tests
+make test
+
+# Build locally
+make build
+
+# Run locally (requires kubeconfig)
+./bin/manager
+```
+
+### Testing
+
+```bash
+# Run unit tests
+make test
+
+# Run integration tests with KinD
+make test-integration
+
+# Run webhook tests
+make test-webhook
+
+# Lint code
+make lint
+```
+
+## 📋 Examples
+
+### Complete Examples
+
+See the [examples/](examples/) directory for comprehensive examples:
+
+- [Basic on-demand/spot distribution](examples/ondemand-spot.yaml)
+- [Multi-zone deployment](examples/multi-zone.yaml) 
+- [GPU workload placement](examples/gpu-workload.yaml)
+- [Enterprise policy management](examples/enterprise-policies.yaml)
+- [Microservices with anti-affinity](examples/microservices.yaml)
+
+### Real-World Scenarios
+
+#### E-commerce Platform
+```yaml
+# Frontend: Prioritize availability
+smart-scheduler.io/schedule-strategy: "base=3,weight=2,nodeSelector=node-type:ondemand;weight=1,nodeSelector=node-type:spot"
+
+# Backend APIs: Cost-optimized with availability
+smart-scheduler.io/schedule-strategy: "base=2,weight=1,nodeSelector=node-type:ondemand;weight=3,nodeSelector=node-type:spot"
+
+# Background jobs: Fully cost-optimized
+smart-scheduler.io/schedule-strategy: "base=0,weight=1,nodeSelector=node-type:spot"
+```
+
+## 🔒 Security
+
+### Security Features
+
+- **Non-root containers**: Runs as user 65532
+- **Read-only filesystem**: Immutable container filesystem
+- **Minimal capabilities**: Drops all Linux capabilities
+- **Network policies**: Optional network isolation
+- **Pod Security Standards**: Compatible with restricted PSS
+
+### RBAC Permissions
+
+SmartScheduler requires minimal RBAC permissions:
+
+- **Pods**: Read, delete (for rebalancing)
+- **Deployments**: Read, update (for policy application)
+- **ConfigMaps**: Full access (for state management)
+- **Events**: Create (for audit trail)
+- **PodPlacementPolicies**: Full access (CRD management)
+
+## 📚 API Reference
+
+### Annotation Format
+
+```
+smart-scheduler.io/schedule-strategy: "base=<int>,weight=<int>,nodeSelector=<key>:<value>[,<key>:<value>];weight=<int>,nodeSelector=<key>:<value>"
+```
+
+### PodPlacementPolicy CRD
+
+See the [API documentation](docs/api.md) for complete CRD specification.
+
+## 🚀 Roadmap
+
+- [ ] **Multi-cluster support**: Placement across clusters
+- [ ] **Cost optimization**: Integration with cloud pricing APIs
+- [ ] **Machine learning**: Predictive placement based on workload patterns
+- [ ] **Custom schedulers**: Support for scheduler plugins
+- [ ] **UI Dashboard**: Web interface for policy management
+- [ ] **Integration tests**: Comprehensive e2e test suite
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## 🌟 Acknowledgments
+
+- Kubernetes SIG-Scheduling for scheduler extensibility
+- cert-manager team for certificate management patterns
+- controller-runtime for operator framework
+- The broader Kubernetes community
+
+---
+
+**SmartScheduler** - Intelligent Kubernetes Pod Placement Made Simple

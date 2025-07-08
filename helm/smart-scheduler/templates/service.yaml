@@ -1,0 +1,38 @@
+{{- if .Values.operator.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}-metrics-service
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - name: metrics
+    port: {{ .Values.service.metrics.port }}
+    targetPort: {{ .Values.service.metrics.targetPort }}
+    protocol: TCP
+  selector:
+    {{- include "smart-scheduler.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "smart-scheduler.webhookServiceName" . }}
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - name: webhook
+    port: {{ .Values.service.webhook.port }}
+    targetPort: {{ .Values.service.webhook.targetPort }}
+    protocol: TCP
+  selector:
+    {{- include "smart-scheduler.selectorLabels" . | nindent 4 }}
+{{- end }} 

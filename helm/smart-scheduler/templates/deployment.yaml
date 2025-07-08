@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "smart-scheduler.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- if .Values.monitoring.serviceMonitor.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.operator.metrics.port }}"
+        prometheus.io/path: "{{ .Values.operator.metrics.path }}"
+        {{- end }}
+      labels:
+        {{- include "smart-scheduler.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "smart-scheduler.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      containers:
+      - name: manager
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /manager
+        args:
+        - --leader-elect={{ .Values.operator.leaderElection }}
+        - --metrics-bind-address=0.0.0.0:{{ .Values.operator.metrics.port }}
+        - --health-probe-bind-address=0.0.0.0:{{ .Values.operator.health.port }}
+        {{- if .Values.webhook.enabled }}
+        - --webhook-port={{ .Values.webhook.port }}
+        - --webhook-cert-dir={{ .Values.webhook.certDir }}
+        {{- end }}
+        {{- if .Values.development.debug }}
+        - --zap-log-level=debug
+        {{- else }}
+        - --zap-log-level={{ .Values.logging.level }}
+        {{- end }}
+        {{- if .Values.logging.development }}
+        - --zap-development
+        {{- end }}
+        {{- if eq .Values.logging.encoder "console" }}
+        - --zap-encoder=console
+        {{- end }}
+        {{- if .Values.multiNamespace.enabled }}
+        {{- range .Values.multiNamespace.watchNamespaces }}
+        - --namespace={{ . }}
+        {{- end }}
+        {{- end }}
+        ports:
+        {{- if .Values.operator.metrics.enabled }}
+        - name: metrics
+          containerPort: {{ .Values.operator.metrics.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.operator.health.enabled }}
+        - name: health
+          containerPort: {{ .Values.operator.health.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.webhook.enabled }}
+        - name: webhook
+          containerPort: {{ .Values.webhook.port }}
+          protocol: TCP
+        {{- end }}
+        env:
+        - name: WEBHOOK_CERT_DIR
+          value: {{ .Values.webhook.certDir }}
+        {{- if .Values.features.crdPolicies }}
+        - name: ENABLE_CRD_POLICIES
+          value: "true"
+        {{- end }}
+        {{- if .Values.features.rebalancing }}
+        - name: ENABLE_REBALANCING
+          value: "true"
+        {{- end }}
+        {{- if .Values.features.driftDetection }}
+        - name: ENABLE_DRIFT_DETECTION
+          value: "true"
+        {{- end }}
+        {{- if .Values.features.enhancedMetrics }}
+        - name: ENABLE_ENHANCED_METRICS
+          value: "true"
+        {{- end }}
+        {{- if .Values.operator.health.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.operator.health.probePath }}
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.operator.health.readinessPath }}
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- if .Values.webhook.enabled }}
+        volumeMounts:
+        - mountPath: {{ .Values.webhook.certDir }}
+          name: cert
+          readOnly: true
+        {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "smart-scheduler.fullname" . }}-webhook-server-cert
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10 
