@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-scheduler-controller-manager
+  namespace: smart-scheduler-system
+  labels:
+    app: smart-scheduler
+    control-plane: controller-manager
+spec:
+  selector:
+    matchLabels:
+      app: smart-scheduler
+      control-plane: controller-manager
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: smart-scheduler
+        control-plane: controller-manager
+    spec:
+      serviceAccountName: smart-scheduler-controller-manager
+      containers:
+      - name: manager
+        image: smart-scheduler:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - /manager
+        args:
+        - --leader-elect
+        - --webhook-port=9443
+        - --cert-dir=/tmp/k8s-webhook-server/serving-certs/
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health-probe
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+        env:
+        - name: WEBHOOK_CERT_DIR
+          value: /tmp/k8s-webhook-server/serving-certs/
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: smart-scheduler-webhook-certs
+      terminationGracePeriodSeconds: 10 
