@@ -46,7 +46,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.REGISTRY_DOCKERHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ env.REGISTRY_GHCR }}/${{ github.repository }}
           tags: |
             # set latest tag for default branch
@@ -70,6 +69,7 @@ jobs:
           registry: ${{ env.REGISTRY_DOCKERHUB }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+        continue-on-error: true
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -99,14 +99,24 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY_GHCR }}/${{ github.repository }}:${{ steps.meta.outputs.version || 'main' }}
+          format: 'table'
+        continue-on-error: true
+
+      - name: Run Trivy for SARIF (if needed)
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY_GHCR }}/${{ github.repository }}:${{ steps.meta.outputs.version || 'main' }}
           format: 'sarif'
           output: 'trivy-results.sarif'
+        continue-on-error: true
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && github.event_name != 'pull_request' && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
 
   test-images:
     needs: build-and-push

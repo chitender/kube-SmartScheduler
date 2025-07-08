@@ -23,7 +23,15 @@ Builds and publishes container images for multiple architectures:
 - **Testing**: Platform-specific image validation
 - **Automation**: Automatic Helm chart updates on version tags
 
-## Required Secrets
+## Prerequisites
+
+### Enable GitHub Features (Optional)
+1. **Code Scanning** (for SARIF security reports):
+   - Go to `Settings` → `Code security and analysis`
+   - Enable "Code scanning" to receive security reports
+   - If disabled, SARIF uploads will be skipped automatically
+
+### Required Secrets
 
 Configure these secrets in your GitHub repository settings (`Settings` → `Secrets and variables` → `Actions`):
 
