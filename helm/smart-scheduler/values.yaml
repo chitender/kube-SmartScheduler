@@ -5,10 +5,19 @@
 replicaCount: 1
 
 image:
+  # Image registry configuration
+  registry: ghcr.io
   repository: smart-scheduler
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
+  
+  # Multi-architecture support
+  platform: ""  # Leave empty for auto-detection, or specify: linux/amd64, linux/arm64
+  
+  # Alternative registries (uncomment to use)
+  # registry: docker.io
+  # repository: your-dockerhub-username/smart-scheduler
 
 imagePullSecrets: []
 nameOverride: ""

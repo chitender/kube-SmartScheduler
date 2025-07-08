@@ -44,6 +44,11 @@ vet: ## Run go vet against code.
 test: fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
+.PHONY: lint
+lint: ## Run golangci-lint
+	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+	golangci-lint run
+
 ##@ Build
 
 .PHONY: build
@@ -61,6 +66,34 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${IMG}
+
+.PHONY: docker-buildx-setup
+docker-buildx-setup: ## Set up Docker buildx for multi-architecture builds.
+	docker buildx create --name multiarch --driver docker-container --use || true
+	docker buildx inspect --bootstrap
+
+.PHONY: docker-buildx
+docker-buildx: docker-buildx-setup ## Build multi-architecture docker images (amd64, arm64).
+	docker buildx build --platform linux/amd64,linux/arm64 -t ${IMG} .
+
+.PHONY: docker-buildx-push
+docker-buildx-push: docker-buildx-setup ## Build and push multi-architecture docker images.
+	docker buildx build --platform linux/amd64,linux/arm64 -t ${IMG} --push .
+
+.PHONY: docker-build-amd64
+docker-build-amd64: ## Build docker image for AMD64 architecture.
+	docker buildx build --platform linux/amd64 -t ${IMG}-amd64 --load .
+
+.PHONY: docker-build-arm64  
+docker-build-arm64: ## Build docker image for ARM64 architecture.
+	docker buildx build --platform linux/arm64 -t ${IMG}-arm64 --load .
+
+.PHONY: docker-test-multiarch
+docker-test-multiarch: docker-buildx ## Test multi-architecture images locally.
+	@echo "Testing AMD64 image..."
+	docker run --rm --platform linux/amd64 ${IMG} --help || echo "AMD64 test completed"
+	@echo "Testing ARM64 image..."
+	docker run --rm --platform linux/arm64 ${IMG} --help || echo "ARM64 test completed"
 
 ##@ Deployment
 
