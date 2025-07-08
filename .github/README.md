@@ -41,6 +41,18 @@ DOCKERHUB_TOKEN=your-dockerhub-access-token
 ### GitHub Container Registry (Automatic)
 The workflow uses the built-in `GITHUB_TOKEN` which is automatically provided by GitHub Actions. No additional setup required.
 
+### Workflow Permissions
+The workflows are configured with minimal required permissions:
+
+| Job | Permissions | Purpose |
+|-----|-------------|---------|
+| `test` | `contents: read` | Checkout code and run tests |
+| `lint` | `contents: read` | Checkout code and run linting |
+| `security` | `contents: read`, `security-events: write` | Security scanning and SARIF upload |
+| `build-and-push` | `contents: read`, `packages: write`, `security-events: write`, `actions: read` | Build/push images, security scanning |
+| `test-images` | `contents: read`, `packages: read` | Pull and test published images |
+| `update-helm-chart` | `contents: write` | Update Helm chart versions and commit changes |
+
 ## Image Tagging Strategy
 
 The workflow automatically creates tags based on:
@@ -154,6 +166,16 @@ helm lint helm/smart-scheduler/
 - Review Trivy/Gosec reports in GitHub Security tab
 - Address critical vulnerabilities before merging
 - Update base images if needed
+
+**GitHub Actions permission errors:**
+- "Resource not accessible by integration": Check job permissions in workflow files
+- "Action not found": Use direct tool installation instead of deprecated actions
+- SARIF upload failures: Ensure `security-events: write` permission is set
+
+**Gosec scanning issues:**
+- The workflow now uses direct `gosec` installation for reliability
+- SARIF uploads are skipped for pull requests to avoid permission conflicts
+- Text output is displayed for PRs instead of SARIF upload
 
 ### Performance Optimization
 
