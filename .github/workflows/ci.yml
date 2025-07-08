@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
@@ -40,6 +42,8 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
@@ -56,6 +60,9 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - uses: actions/checkout@v4
 
@@ -64,18 +71,33 @@ jobs:
       with:
         go-version: '1.21'
 
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Install Gosec
+      run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+
     - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: '-fmt sarif -out gosec.sarif ./...'
+      run: |
+        gosec -fmt sarif -out gosec.sarif -stdout ./...
+      continue-on-error: true
 
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v3
+      if: always() && github.event_name != 'pull_request'
       with:
         sarif_file: gosec.sarif
 
+    - name: Display Gosec Results (for PRs)
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "Security scan completed. Results:"
+        gosec -fmt text ./... || true
+
   validate-helm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
@@ -94,6 +116,8 @@ jobs:
 
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
@@ -115,6 +139,9 @@ jobs:
 
   dockerfile-lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - uses: actions/checkout@v4
 

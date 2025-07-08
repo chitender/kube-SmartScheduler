@@ -23,6 +23,7 @@ jobs:
       contents: read
       packages: write
       security-events: write
+      actions: read
     
     steps:
       - name: Checkout repository
@@ -111,6 +112,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64]
@@ -144,6 +148,8 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout repository
