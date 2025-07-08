@@ -18,9 +18,10 @@ import (
 
 // PodMutator implements the mutating admission webhook for pods
 type PodMutator struct {
-	Client  client.Client
-	Log     logr.Logger
-	decoder *admission.Decoder
+	Client       client.Client
+	Log          logr.Logger
+	decoder      *admission.Decoder
+	StateManager *StateManager
 }
 
 //+kubebuilder:webhook:path=/mutate-v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=mpod.smart-scheduler.io,admissionReviewVersions=v1
@@ -55,7 +56,8 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 	deployment, err := pm.findParentDeployment(ctx, pod)
 	if err != nil {
 		log.Error(err, "Failed to find parent deployment")
-		return admission.Errored(http.StatusInternalServerError, err)
+		// Don't fail the request, allow default scheduling
+		return pm.allowWithFallback(log, "failed to find parent deployment")
 	}
 
 	if deployment == nil {
@@ -80,26 +82,29 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 	strategy, err := ParsePlacementStrategy(scheduleStrategy)
 	if err != nil {
 		log.Error(err, "Failed to parse placement strategy", "strategy", scheduleStrategy)
-		return admission.Errored(http.StatusBadRequest, fmt.Errorf("invalid placement strategy: %w", err))
+		// Don't fail the request, allow default scheduling
+		return pm.allowWithFallback(log, fmt.Sprintf("invalid placement strategy: %v", err))
 	}
 
 	log.Info("Parsed placement strategy", "base", strategy.Base, "rules", len(strategy.Rules))
 
-	// Get current pod counts for this deployment
-	currentCounts, err := pm.getCurrentPodCounts(ctx, deployment, strategy)
+	// Get current placement state using StateManager
+	placementState, err := pm.StateManager.GetPlacementState(ctx, deployment, strategy)
 	if err != nil {
-		log.Error(err, "Failed to get current pod counts")
-		return admission.Errored(http.StatusInternalServerError, err)
+		log.Error(err, "Failed to get placement state")
+		// Don't fail the request, try to continue with basic logic
+		return pm.applyStrategyWithFallback(ctx, req, pod, deployment, strategy, log)
 	}
 
-	log.Info("Current pod counts", "counts", currentCounts)
+	log.Info("Current placement state", "totalPods", placementState.TotalPods, "counts", placementState.PodCounts)
 
 	// Apply the placement strategy to the pod
 	originalPod := pod.DeepCopy()
-	err = ApplyPlacementStrategy(pod, strategy, currentCounts)
+	err = ApplyPlacementStrategy(pod, strategy, placementState.PodCounts)
 	if err != nil {
 		log.Error(err, "Failed to apply placement strategy")
-		return admission.Errored(http.StatusInternalServerError, err)
+		// Don't fail the request, allow default scheduling
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to apply placement strategy: %v", err))
 	}
 
 	// Mark pod as processed
@@ -108,26 +113,107 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 	}
 	pod.Annotations["smart-scheduler.io/processed"] = "true"
 	pod.Annotations["smart-scheduler.io/strategy-applied"] = scheduleStrategy
+	pod.Annotations["smart-scheduler.io/placement-rule"] = pm.getAppliedRuleKey(originalPod, pod, strategy)
+
+	// Update placement state
+	appliedRuleKey := pm.getAppliedRuleKey(originalPod, pod, strategy)
+	if appliedRuleKey != "" {
+		err = pm.StateManager.IncrementPodCount(ctx, deployment, appliedRuleKey)
+		if err != nil {
+			log.Error(err, "Failed to update placement state, continuing without state update")
+			// Don't fail the request, just log the error
+		}
+	}
 
 	// Create the patch
 	patch, err := createPatch(originalPod, pod)
 	if err != nil {
 		log.Error(err, "Failed to create patch")
-		return admission.Errored(http.StatusInternalServerError, err)
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to create patch: %v", err))
 	}
 
-	log.Info("Successfully applied smart scheduling", "nodeSelector", pod.Spec.NodeSelector)
+	log.Info("Successfully applied smart scheduling",
+		"nodeSelector", pod.Spec.NodeSelector,
+		"hasAffinity", pod.Spec.Affinity != nil,
+		"appliedRule", appliedRuleKey)
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, patch)
 }
 
-// getCurrentPodCounts gets the current pod distribution for a deployment
-func (pm *PodMutator) getCurrentPodCounts(ctx context.Context, deployment *appsv1.Deployment, strategy *PlacementStrategy) (map[string]int, error) {
+// allowWithFallback allows the request with a warning annotation
+func (pm *PodMutator) allowWithFallback(log logr.Logger, reason string) admission.Response {
+	log.Info("Allowing pod with fallback to default scheduling", "reason", reason)
+	return admission.Allowed(fmt.Sprintf("SmartScheduler fallback: %s", reason))
+}
+
+// applyStrategyWithFallback applies strategy with basic logic when StateManager fails
+func (pm *PodMutator) applyStrategyWithFallback(ctx context.Context, req admission.Request, pod *corev1.Pod, deployment *appsv1.Deployment, strategy *PlacementStrategy, log logr.Logger) admission.Response {
+	log.Info("Applying strategy with fallback logic")
+
+	// Try to get basic pod counts without StateManager
+	currentCounts, err := pm.getBasicPodCounts(ctx, deployment, strategy)
+	if err != nil {
+		log.Error(err, "Failed to get basic pod counts")
+		return pm.allowWithFallback(log, "failed to get pod counts")
+	}
+
+	originalPod := pod.DeepCopy()
+	err = ApplyPlacementStrategy(pod, strategy, currentCounts)
+	if err != nil {
+		log.Error(err, "Failed to apply placement strategy in fallback mode")
+		return pm.allowWithFallback(log, "failed to apply strategy in fallback")
+	}
+
+	// Mark pod as processed
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+	pod.Annotations["smart-scheduler.io/processed"] = "true"
+	pod.Annotations["smart-scheduler.io/fallback-mode"] = "true"
+
+	// Create the patch
+	patch, err := createPatch(originalPod, pod)
+	if err != nil {
+		log.Error(err, "Failed to create patch in fallback mode")
+		return pm.allowWithFallback(log, "failed to create patch")
+	}
+
+	log.Info("Successfully applied smart scheduling in fallback mode", "nodeSelector", pod.Spec.NodeSelector)
+	return admission.PatchResponseFromRaw(req.Object.Raw, patch)
+}
+
+// getAppliedRuleKey determines which rule was applied to the pod
+func (pm *PodMutator) getAppliedRuleKey(originalPod, modifiedPod *corev1.Pod, strategy *PlacementStrategy) string {
+	// Compare nodeSelectors to determine which rule was applied
+	appliedNodeSelector := make(map[string]string)
+
+	// Find newly added nodeSelector entries
+	if modifiedPod.Spec.NodeSelector != nil {
+		for key, value := range modifiedPod.Spec.NodeSelector {
+			if originalPod.Spec.NodeSelector == nil || originalPod.Spec.NodeSelector[key] != value {
+				appliedNodeSelector[key] = value
+			}
+		}
+	}
+
+	// Match against strategy rules
+	for _, rule := range strategy.Rules {
+		if isNodeSelectorSubset(rule.NodeSelector, appliedNodeSelector) {
+			return ruleToString(rule)
+		}
+	}
+
+	// Fallback to full nodeSelector
+	return nodeSelector2String(appliedNodeSelector)
+}
+
+// getBasicPodCounts gets pod counts without using StateManager
+func (pm *PodMutator) getBasicPodCounts(ctx context.Context, deployment *appsv1.Deployment, strategy *PlacementStrategy) (map[string]int, error) {
 	counts := make(map[string]int)
 
 	// Initialize counts for all rules
 	for _, rule := range strategy.Rules {
-		ruleKey := nodeSelector2String(rule.NodeSelector)
+		ruleKey := ruleToString(rule)
 		counts[ruleKey] = 0
 	}
 
@@ -162,7 +248,7 @@ func (pm *PodMutator) getCurrentPodCounts(ctx context.Context, deployment *appsv
 
 		// Find matching rule
 		for _, rule := range strategy.Rules {
-			ruleKey := nodeSelector2String(rule.NodeSelector)
+			ruleKey := ruleToString(rule)
 			if podKey == ruleKey || isNodeSelectorSubset(rule.NodeSelector, pod.Spec.NodeSelector) {
 				counts[ruleKey]++
 				break
@@ -200,20 +286,50 @@ func createPatch(original, modified *corev1.Pod) ([]byte, error) {
 
 	// Add nodeSelector patch if it was modified
 	if !nodeSelectorsEqual(original.Spec.NodeSelector, modified.Spec.NodeSelector) {
-		patch = append(patch, map[string]interface{}{
-			"op":    "replace",
-			"path":  "/spec/nodeSelector",
-			"value": modified.Spec.NodeSelector,
-		})
+		if modified.Spec.NodeSelector == nil {
+			patch = append(patch, map[string]interface{}{
+				"op":   "remove",
+				"path": "/spec/nodeSelector",
+			})
+		} else {
+			patch = append(patch, map[string]interface{}{
+				"op":    "replace",
+				"path":  "/spec/nodeSelector",
+				"value": modified.Spec.NodeSelector,
+			})
+		}
+	}
+
+	// Add affinity patch if it was modified
+	if !affinityEqual(original.Spec.Affinity, modified.Spec.Affinity) {
+		if modified.Spec.Affinity == nil {
+			patch = append(patch, map[string]interface{}{
+				"op":   "remove",
+				"path": "/spec/affinity",
+			})
+		} else {
+			patch = append(patch, map[string]interface{}{
+				"op":    "replace",
+				"path":  "/spec/affinity",
+				"value": modified.Spec.Affinity,
+			})
+		}
 	}
 
 	// Add annotations patch
 	if !annotationsEqual(original.Annotations, modified.Annotations) {
-		patch = append(patch, map[string]interface{}{
-			"op":    "replace",
-			"path":  "/metadata/annotations",
-			"value": modified.Annotations,
-		})
+		if modified.Annotations == nil {
+			patch = append(patch, map[string]interface{}{
+				"op":   "remove",
+				"path": "/metadata/annotations",
+			})
+		} else {
+			patch = append(patch, map[string]interface{}{
+				"op":    "replace",
+				"path":  "/metadata/annotations",
+				"value": modified.Annotations,
+			})
+		}
 	}
 
 	return json.Marshal(patch)
@@ -232,6 +348,20 @@ func nodeSelectorsEqual(a, b map[string]string) bool {
 	}
 
 	return true
+}
+
+// affinityEqual compares two affinity objects
+func affinityEqual(a, b *corev1.Affinity) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// For simplicity, we'll do a deep comparison via JSON marshaling
+	aJSON, _ := json.Marshal(a)
+	bJSON, _ := json.Marshal(b)
+	return string(aJSON) == string(bJSON)
 }
 
 // annotationsEqual compares two annotation maps
@@ -284,6 +414,11 @@ func (pm *PodMutator) findParentDeployment(ctx context.Context, pod *corev1.Pod)
 // SetupWebhookWithManager sets up the webhook with the manager
 func (pm *PodMutator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	pm.decoder = admission.NewDecoder(mgr.GetScheme())
+
+	// Initialize StateManager
+	if pm.StateManager == nil {
+		pm.StateManager = NewStateManager(mgr.GetClient(), pm.Log.WithName("StateManager"))
+	}
 
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&corev1.Pod{}).

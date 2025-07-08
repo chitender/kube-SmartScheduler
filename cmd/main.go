@@ -7,12 +7,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	smartschedulerv1 "github.com/kube-smartscheduler/smart-scheduler/api/v1"
 	"github.com/kube-smartscheduler/smart-scheduler/controllers"
 	smartwebhook "github.com/kube-smartscheduler/smart-scheduler/webhook"
 )
@@ -24,6 +26,9 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	utilruntime.Must(smartschedulerv1.AddToScheme(scheme))
+	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -78,11 +83,33 @@ func main() {
 	}
 
 	// Setup webhook
-	if err = (&smartwebhook.PodMutator{
+	podMutator := &smartwebhook.PodMutator{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("webhook").WithName("PodMutator"),
-	}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutator")
+	}
+
+	if err = podMutator.SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup webhook", "webhook", "PodMutator")
+		os.Exit(1)
+	}
+
+	// Setup RebalanceController
+	if err = (&controllers.RebalanceController{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("RebalanceController"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RebalanceController")
+		os.Exit(1)
+	}
+
+	// Setup PodPlacementPolicyController
+	if err = (&controllers.PodPlacementPolicyController{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("PodPlacementPolicyController"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PodPlacementPolicyController")
 		os.Exit(1)
 	}
 
