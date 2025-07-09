@@ -48,7 +48,7 @@ spec:
         - --health-probe-bind-address=0.0.0.0:{{ .Values.operator.health.port }}
         {{- if .Values.webhook.enabled }}
         - --webhook-port={{ .Values.webhook.port }}
-        - --webhook-cert-dir={{ .Values.webhook.certDir }}
+        - --cert-dir={{ .Values.webhook.certDir }}
         {{- end }}
         {{- if .Values.development.debug }}
         - --zap-log-level=debug
