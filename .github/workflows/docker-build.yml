@@ -41,12 +41,19 @@ jobs:
         with:
           platforms: arm64
 
+      - name: Set repository name
+        id: repo
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "name=${REPO_LOWER}" >> $GITHUB_OUTPUT
+          echo "Repository name (lowercase): ${REPO_LOWER}"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.REGISTRY_GHCR }}/${{ github.repository }}
+            ${{ env.REGISTRY_GHCR }}/${{ steps.repo.outputs.name }}
           tags: |
             # set latest tag for default branch
             type=ref,event=branch
@@ -61,6 +68,8 @@ jobs:
             org.opencontainers.image.title=SmartScheduler
             org.opencontainers.image.description=Kubernetes operator for intelligent pod placement and scheduling
             org.opencontainers.image.vendor=${{ github.repository_owner }}
+          flavor: |
+            latest=auto
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
@@ -95,10 +104,17 @@ jobs:
             VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
             REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
 
+      - name: Set image reference for Trivy
+        id: image-ref
+        run: |
+          IMAGE_REF="${{ env.REGISTRY_GHCR }}/${{ steps.repo.outputs.name }}:${{ steps.meta.outputs.version || 'main' }}"
+          echo "image-ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
+          echo "Using image reference: ${IMAGE_REF}"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY_GHCR }}/${{ github.repository }}:${{ steps.meta.outputs.version || 'main' }}
+          image-ref: ${{ steps.image-ref.outputs.image-ref }}
           format: 'table'
         continue-on-error: true
 
@@ -106,7 +122,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY_GHCR }}/${{ github.repository }}:${{ steps.meta.outputs.version || 'main' }}
+          image-ref: ${{ steps.image-ref.outputs.image-ref }}
           format: 'sarif'
           output: 'trivy-results.sarif'
         continue-on-error: true
@@ -144,15 +160,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set repository name for testing
+        id: repo
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "name=${REPO_LOWER}" >> $GITHUB_OUTPUT
+          echo "Repository name (lowercase): ${REPO_LOWER}"
+
       - name: Test image on ${{ matrix.platform }}
         run: |
+          IMAGE_REF="${{ env.REGISTRY_GHCR }}/${{ steps.repo.outputs.name }}:main"
+          
+          echo "Testing image: ${IMAGE_REF}"
+          
           # Extract platform-specific digest
-          PLATFORM_DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY_GHCR }}/${{ github.repository }}:main --format "{{ range .Manifest.Manifests }}{{ if eq .Platform.Architecture \"$(echo ${{ matrix.platform }} | cut -d'/' -f2)\" }}{{ .Digest }}{{ end }}{{ end }}")
+          PLATFORM_DIGEST=$(docker buildx imagetools inspect ${IMAGE_REF} --format "{{ range .Manifest.Manifests }}{{ if eq .Platform.Architecture \"$(echo ${{ matrix.platform }} | cut -d'/' -f2)\" }}{{ .Digest }}{{ end }}{{ end }}")
           
           # Test the image can run
-          docker run --rm --platform=${{ matrix.platform }} \
-            ${{ env.REGISTRY_GHCR }}/${{ github.repository }}@${PLATFORM_DIGEST} \
-            --help || echo "Image runs successfully on ${{ matrix.platform }}"
+          if [ -n "${PLATFORM_DIGEST}" ]; then
+            echo "Found platform digest: ${PLATFORM_DIGEST}"
+            docker run --rm --platform=${{ matrix.platform }} \
+              ${{ env.REGISTRY_GHCR }}/${{ steps.repo.outputs.name }}@${PLATFORM_DIGEST} \
+              --help || echo "Image runs successfully on ${{ matrix.platform }}"
+          else
+            echo "No platform-specific digest found, testing image directly"
+            docker run --rm --platform=${{ matrix.platform }} \
+              ${IMAGE_REF} \
+              --help || echo "Image runs successfully on ${{ matrix.platform }}"
+          fi
 
   update-helm-chart:
     needs: build-and-push
