@@ -1,6 +1,6 @@
 {{- if .Values.webhook.enabled }}
 apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingAdmissionWebhookConfiguration
+kind: MutatingWebhookConfiguration
 metadata:
   name: {{ include "smart-scheduler.fullname" . }}-mutating-webhook-configuration
   labels:
