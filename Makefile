@@ -1,5 +1,27 @@
+# Version information
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
+COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+VERSION_PKG = github.com/kube-smartscheduler/smart-scheduler/pkg/version
+
+# Semantic version parsing
+SEMVER_REGEX = ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[a-zA-Z0-9-]+)?(\+[a-zA-Z0-9-]+)?$$
+MAJOR_VERSION = $(shell echo $(VERSION) | sed -E 's/$(SEMVER_REGEX)/\1/')
+MINOR_VERSION = $(shell echo $(VERSION) | sed -E 's/$(SEMVER_REGEX)/\2/')
+PATCH_VERSION = $(shell echo $(VERSION) | sed -E 's/$(SEMVER_REGEX)/\3/')
+
+# Image registry and repository
+REGISTRY ?= docker.io
+REPOSITORY ?= smart-scheduler
+
 # Image URL to use all building/pushing image targets
-IMG ?= smart-scheduler:latest
+IMG ?= $(REGISTRY)/$(REPOSITORY):$(VERSION)
+
+# Additional image tags
+IMG_LATEST ?= $(REGISTRY)/$(REPOSITORY):latest
+IMG_MAJOR ?= $(REGISTRY)/$(REPOSITORY):v$(MAJOR_VERSION)
+IMG_MINOR ?= $(REGISTRY)/$(REPOSITORY):v$(MAJOR_VERSION).$(MINOR_VERSION)
+IMG_COMMIT ?= $(REGISTRY)/$(REPOSITORY):$(COMMIT_HASH)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.28.3
@@ -53,19 +75,73 @@ lint: ## Run golangci-lint
 
 .PHONY: build
 build: fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags="-X '$(VERSION_PKG).Version=$(VERSION)' -X '$(VERSION_PKG).CommitHash=$(COMMIT_HASH)' -X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)'" -o bin/manager cmd/main.go
+
+.PHONY: version
+version: ## Show version information
+	@echo "Version: $(VERSION)"
+	@echo "Commit Hash: $(COMMIT_HASH)"
+	@echo "Build Date: $(BUILD_DATE)"
+	@echo "Major: $(MAJOR_VERSION)"
+	@echo "Minor: $(MINOR_VERSION)"
+	@echo "Patch: $(PATCH_VERSION)"
+	@echo ""
+	@echo "Image Tags:"
+	@echo "  Main: $(IMG)"
+	@echo "  Latest: $(IMG_LATEST)"
+	@echo "  Major: $(IMG_MAJOR)"
+	@echo "  Minor: $(IMG_MINOR)"
+	@echo "  Commit: $(IMG_COMMIT)"
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
+docker-build: ## Build docker image with semantic versioning tags.
+	@echo "Building Docker image with version $(VERSION)..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG) \
+		-t $(IMG_LATEST) \
+		-t $(IMG_MAJOR) \
+		-t $(IMG_MINOR) \
+		-t $(IMG_COMMIT) \
+		.
+	@echo "Built images with tags:"
+	@echo "  $(IMG)"
+	@echo "  $(IMG_LATEST)"
+	@echo "  $(IMG_MAJOR)"
+	@echo "  $(IMG_MINOR)"
+	@echo "  $(IMG_COMMIT)"
+
+.PHONY: docker-build-single
+docker-build-single: ## Build docker image with only the version tag.
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG) \
+		.
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+docker-push: ## Push all docker image tags.
+	@echo "Pushing Docker images..."
+	docker push $(IMG)
+	docker push $(IMG_LATEST)
+	docker push $(IMG_MAJOR)
+	docker push $(IMG_MINOR)
+	docker push $(IMG_COMMIT)
+	@echo "All images pushed successfully!"
+
+.PHONY: docker-push-version
+docker-push-version: ## Push only the versioned docker image.
+	docker push $(IMG)
+
+.PHONY: docker-build-and-push
+docker-build-and-push: docker-build docker-push ## Build and push all docker images with tags.
 
 .PHONY: docker-buildx-setup
 docker-buildx-setup: ## Set up Docker buildx for multi-architecture builds.
@@ -74,26 +150,95 @@ docker-buildx-setup: ## Set up Docker buildx for multi-architecture builds.
 
 .PHONY: docker-buildx
 docker-buildx: docker-buildx-setup ## Build multi-architecture docker images (amd64, arm64).
-	docker buildx build --platform linux/amd64,linux/arm64 -t ${IMG} .
+	@echo "Building multi-architecture Docker images with version $(VERSION)..."
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG) \
+		-t $(IMG_LATEST) \
+		-t $(IMG_MAJOR) \
+		-t $(IMG_MINOR) \
+		-t $(IMG_COMMIT) \
+		.
 
 .PHONY: docker-buildx-push
 docker-buildx-push: docker-buildx-setup ## Build and push multi-architecture docker images.
-	docker buildx build --platform linux/amd64,linux/arm64 -t ${IMG} --push .
+	@echo "Building and pushing multi-architecture Docker images with version $(VERSION)..."
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG) \
+		-t $(IMG_LATEST) \
+		-t $(IMG_MAJOR) \
+		-t $(IMG_MINOR) \
+		-t $(IMG_COMMIT) \
+		--push .
 
 .PHONY: docker-build-amd64
 docker-build-amd64: ## Build docker image for AMD64 architecture.
-	docker buildx build --platform linux/amd64 -t ${IMG}-amd64 --load .
+	docker buildx build --platform linux/amd64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG)-amd64 \
+		--load .
 
 .PHONY: docker-build-arm64  
 docker-build-arm64: ## Build docker image for ARM64 architecture.
-	docker buildx build --platform linux/arm64 -t ${IMG}-arm64 --load .
+	docker buildx build --platform linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMG)-arm64 \
+		--load .
 
 .PHONY: docker-test-multiarch
 docker-test-multiarch: docker-buildx ## Test multi-architecture images locally.
 	@echo "Testing AMD64 image..."
-	docker run --rm --platform linux/amd64 ${IMG} --help || echo "AMD64 test completed"
+	docker run --rm --platform linux/amd64 $(IMG) --help || echo "AMD64 test completed"
 	@echo "Testing ARM64 image..."
-	docker run --rm --platform linux/arm64 ${IMG} --help || echo "ARM64 test completed"
+	docker run --rm --platform linux/arm64 $(IMG) --help || echo "ARM64 test completed"
+
+##@ Release
+
+.PHONY: tag
+tag: ## Create and push a git tag for the current version.
+	@if [ "$(VERSION)" = "v0.1.0" ]; then \
+		echo "Error: VERSION is default value. Please create a git tag first or set VERSION explicitly."; \
+		echo "Example: git tag v1.0.1 && git push origin v1.0.1"; \
+		exit 1; \
+	fi
+	@echo "Current version: $(VERSION)"
+	@echo "This will create tag: $(VERSION)"
+	@read -p "Continue? [y/N] " -n 1 -r; echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		git tag $(VERSION) && git push origin $(VERSION); \
+	else \
+		echo "Tag creation cancelled."; \
+	fi
+
+.PHONY: release
+release: version docker-buildx-push ## Create a full release with multi-arch images.
+	@echo "Release $(VERSION) completed successfully!"
+	@echo "Images available at:"
+	@echo "  $(IMG)"
+	@echo "  $(IMG_LATEST)"
+	@echo "  $(IMG_MAJOR)"
+	@echo "  $(IMG_MINOR)"
+
+.PHONY: release-local
+release-local: version docker-build ## Create a local release build.
+	@echo "Local release $(VERSION) completed!"
+
+.PHONY: pre-release
+pre-release: ## Build and test before releasing.
+	@echo "Running pre-release checks..."
+	$(MAKE) fmt vet test lint
+	$(MAKE) docker-build
+	$(MAKE) docker-test-multiarch
+	@echo "Pre-release checks passed! Ready for release."
 
 ##@ Deployment
 

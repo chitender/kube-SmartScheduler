@@ -5,6 +5,11 @@ FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
+# Version build arguments
+ARG VERSION=unknown
+ARG COMMIT_HASH=unknown  
+ARG BUILD_DATE=unknown
+
 WORKDIR /workspace
 
 # Copy go mod and sum files
@@ -16,8 +21,10 @@ RUN go mod download
 # Copy the source code
 COPY . .
 
-# Build the manager binary with proper architecture targeting
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -a -ldflags '-w -s' -o manager cmd/main.go
+# Build the manager binary with proper architecture targeting and version info
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -a \
+    -ldflags "-w -s -X 'github.com/kube-smartscheduler/smart-scheduler/pkg/version.Version=${VERSION}' -X 'github.com/kube-smartscheduler/smart-scheduler/pkg/version.CommitHash=${COMMIT_HASH}' -X 'github.com/kube-smartscheduler/smart-scheduler/pkg/version.BuildDate=${BUILD_DATE}'" \
+    -o manager cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details

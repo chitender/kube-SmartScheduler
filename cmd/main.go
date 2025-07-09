@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +19,7 @@ import (
 
 	smartschedulerv1 "github.com/kube-smartscheduler/smart-scheduler/api/v1"
 	"github.com/kube-smartscheduler/smart-scheduler/controllers"
+	"github.com/kube-smartscheduler/smart-scheduler/pkg/version"
 	smartwebhook "github.com/kube-smartscheduler/smart-scheduler/webhook"
 )
 
@@ -167,6 +169,7 @@ func main() {
 	var webhookPort int
 	var certDir string
 	var enableDebugAPILogging bool
+	var showVersion bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -176,6 +179,7 @@ func main() {
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server serves at.")
 	flag.StringVar(&certDir, "cert-dir", "/tmp/k8s-webhook-server/serving-certs/", "The directory containing the webhook server certificates.")
 	flag.BoolVar(&enableDebugAPILogging, "debug-api-requests", false, "Enable debug logging for all Kubernetes API requests.")
+	flag.BoolVar(&showVersion, "version", false, "Show version information and exit.")
 
 	opts := zap.Options{
 		Development: true,
@@ -183,9 +187,23 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	// Handle version flag
+	if showVersion {
+		versionInfo := version.Get()
+		fmt.Printf("Smart Scheduler Manager\n")
+		fmt.Printf("%s\n", versionInfo.String())
+		os.Exit(0)
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	versionInfo := version.Get()
 	setupLog.Info("Starting Smart Scheduler Manager",
+		"version", versionInfo.Version,
+		"commit", versionInfo.CommitHash,
+		"buildDate", versionInfo.BuildDate,
+		"goVersion", versionInfo.GoVersion,
+		"platform", versionInfo.Platform,
 		"metricsAddr", metricsAddr,
 		"probeAddr", probeAddr,
 		"webhookPort", webhookPort,
