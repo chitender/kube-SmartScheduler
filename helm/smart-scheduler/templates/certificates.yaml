@@ -26,7 +26,6 @@ spec:
       - smart-scheduler
   # The use of the common name field has been deprecated since 2000 and is
   # discouraged from being used.
-  commonName: {{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
   isCA: false
   privateKey:
     algorithm: RSA
