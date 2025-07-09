@@ -69,26 +69,61 @@ func nodeSelector2String(nodeSelector map[string]string) string {
 
 // Reconcile handles rebalancing requests and placement drift detection
 func (r *RebalanceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("rebalance", req.NamespacedName)
+	startTime := time.Now()
+	log := r.Log.WithValues("rebalance", req.NamespacedName, "reconcileID", generateRebalanceReconcileID())
+
+	// Add comprehensive reconciliation logging
+	log.Info("=== REBALANCE RECONCILE START ===",
+		"requestedName", req.Name,
+		"requestedNamespace", req.Namespace,
+		"timestamp", startTime.Format(time.RFC3339))
+
+	defer func() {
+		duration := time.Since(startTime)
+		log.Info("=== REBALANCE RECONCILE END ===",
+			"duration", duration.String(),
+			"durationMs", duration.Milliseconds())
+	}()
 
 	// Check if this is a Deployment or Pod event
 	deployment := &appsv1.Deployment{}
 	err := r.Get(ctx, req.NamespacedName, deployment)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			log.Info("Deployment not found, likely deleted")
 			// Object deleted, clean up state
 			return r.handleDeploymentDeletion(ctx, req.NamespacedName, log)
 		}
+		log.Error(err, "Failed to get deployment")
 		return ctrl.Result{}, err
 	}
 
+	log.Info("Found deployment for rebalance check",
+		"deploymentName", deployment.Name,
+		"deploymentNamespace", deployment.Namespace,
+		"uid", deployment.UID,
+		"generation", deployment.Generation,
+		"observedGeneration", deployment.Status.ObservedGeneration,
+		"replicas", deployment.Spec.Replicas,
+		"availableReplicas", deployment.Status.AvailableReplicas,
+		"readyReplicas", deployment.Status.ReadyReplicas,
+		"resourceVersion", deployment.ResourceVersion)
+
 	// Check if deployment has smart scheduler annotations
 	if deployment.Annotations == nil {
+		log.Info("Deployment has no annotations, skipping rebalance check")
 		return ctrl.Result{}, nil
 	}
 
+	log.Info("Deployment annotations for rebalance",
+		"annotationCount", len(deployment.Annotations),
+		"hasScheduleStrategy", deployment.Annotations["smart-scheduler.io/schedule-strategy"] != "",
+		"hasPolicyName", deployment.Annotations["smart-scheduler.io/policy-name"] != "",
+		"hasProcessed", deployment.Annotations["smart-scheduler.io/processed"] != "")
+
 	scheduleStrategy, exists := deployment.Annotations["smart-scheduler.io/schedule-strategy"]
 	if !exists {
+		log.Info("No schedule strategy annotation found, skipping rebalance")
 		return ctrl.Result{}, nil
 	}
 
@@ -101,12 +136,21 @@ func (r *RebalanceController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 	}
 
+	log.Info("Parsed strategy for rebalance",
+		"base", strategy.Base,
+		"rulesCount", len(strategy.Rules))
+
 	// Get current placement state
 	placementState, err := r.StateManager.GetPlacementState(ctx, deployment, strategy)
 	if err != nil {
 		log.Error(err, "Failed to get placement state")
 		return ctrl.Result{RequeueAfter: time.Minute * 2}, nil
 	}
+
+	log.Info("Current placement state for rebalance",
+		"totalPods", placementState.TotalPods,
+		"podCounts", placementState.PodCounts,
+		"lastUpdated", placementState.LastUpdated)
 
 	// Calculate drift
 	driftReport, err := r.calculateDrift(ctx, deployment, strategy, placementState)
@@ -117,15 +161,24 @@ func (r *RebalanceController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	log.Info("Drift analysis complete",
 		"driftPercentage", driftReport.DriftPercentage,
-		"requiresRebalance", driftReport.RequiresRebalance)
+		"requiresRebalance", driftReport.RequiresRebalance,
+		"expectedCounts", driftReport.ExpectedCounts,
+		"actualCounts", driftReport.ActualCounts)
 
 	// Handle rebalancing if needed
 	if driftReport.RequiresRebalance {
+		log.Info("Rebalancing required, proceeding with rebalance operation")
 		return r.performRebalancing(ctx, deployment, strategy, driftReport, log)
 	}
 
+	log.Info("No rebalancing required, scheduling next check")
 	// Schedule next check
 	return ctrl.Result{RequeueAfter: time.Minute * 10}, nil
+}
+
+// generateRebalanceReconcileID creates a unique ID for each rebalance reconciliation
+func generateRebalanceReconcileID() string {
+	return "rebalance-" + time.Now().Format("20060102150405.000000")
 }
 
 // calculateDrift analyzes the current placement vs expected placement
@@ -406,24 +459,133 @@ func (r *RebalanceController) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc: func(e event.CreateEvent) bool {
+				deployment := e.Object.(*appsv1.Deployment)
+				log := r.Log.WithValues("eventType", "CREATE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
+
+				hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
+				log.Info("Deployment CREATE event for rebalance controller",
+					"hasScheduleStrategy", hasStrategy)
+
+				return hasStrategy
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldDep := e.ObjectOld.(*appsv1.Deployment)
+				newDep := e.ObjectNew.(*appsv1.Deployment)
+
+				log := r.Log.WithValues("eventType", "UPDATE", "deploymentName", newDep.Name, "namespace", newDep.Namespace)
+
+				// Check if deployment has scheduling strategy
+				oldStrategy := ""
+				newStrategy := ""
+				if oldDep.Annotations != nil {
+					oldStrategy = oldDep.Annotations["smart-scheduler.io/schedule-strategy"]
+				}
+				if newDep.Annotations != nil {
+					newStrategy = newDep.Annotations["smart-scheduler.io/schedule-strategy"]
+				}
+
+				hasStrategy := newStrategy != ""
+				strategyChanged := oldStrategy != newStrategy
+				generationChanged := oldDep.Generation != newDep.Generation
+				statusChanged := oldDep.Status.ReadyReplicas != newDep.Status.ReadyReplicas ||
+					oldDep.Status.AvailableReplicas != newDep.Status.AvailableReplicas
+
+				shouldReconcile := hasStrategy && (strategyChanged || generationChanged || statusChanged)
+
+				log.Info("Deployment UPDATE event evaluation for rebalance controller",
+					"hasStrategy", hasStrategy,
+					"strategyChanged", strategyChanged,
+					"generationChanged", generationChanged,
+					"statusChanged", statusChanged,
+					"oldStrategy", oldStrategy,
+					"newStrategy", newStrategy,
+					"oldGeneration", oldDep.Generation,
+					"newGeneration", newDep.Generation,
+					"oldReadyReplicas", oldDep.Status.ReadyReplicas,
+					"newReadyReplicas", newDep.Status.ReadyReplicas,
+					"shouldReconcile", shouldReconcile)
+
+				return shouldReconcile
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				deployment := e.Object.(*appsv1.Deployment)
+				log := r.Log.WithValues("eventType", "DELETE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
+
+				hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
+				log.Info("Deployment DELETE event for rebalance controller",
+					"hasScheduleStrategy", hasStrategy)
+
+				return hasStrategy
+			},
+		}).
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.mapPodToDeployment),
 			builder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					pod := e.Object.(*corev1.Pod)
+					log := r.Log.WithValues("eventType", "POD_CREATE", "podName", pod.Name, "namespace", pod.Namespace)
+
+					hasSmartSchedulerAnnotation := pod.Annotations != nil &&
+						(pod.Annotations["smart-scheduler.io/processed"] != "" ||
+							pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+					log.Info("Pod CREATE event for rebalance controller",
+						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
+						"hasOwnerRef", len(pod.OwnerReferences) > 0)
+
+					return hasSmartSchedulerAnnotation
+				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					// Only trigger on pod deletion or status changes
 					oldPod := e.ObjectOld.(*corev1.Pod)
 					newPod := e.ObjectNew.(*corev1.Pod)
-					return oldPod.Status.Phase != newPod.Status.Phase ||
-						newPod.DeletionTimestamp != nil
+
+					log := r.Log.WithValues("eventType", "POD_UPDATE", "podName", newPod.Name, "namespace", newPod.Namespace)
+
+					// Only care about smart scheduler managed pods
+					hasSmartSchedulerAnnotation := newPod.Annotations != nil &&
+						(newPod.Annotations["smart-scheduler.io/processed"] != "" ||
+							newPod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+					if !hasSmartSchedulerAnnotation {
+						return false
+					}
+
+					// Only trigger on significant status changes
+					phaseChanged := oldPod.Status.Phase != newPod.Status.Phase
+					beingDeleted := newPod.DeletionTimestamp != nil && oldPod.DeletionTimestamp == nil
+
+					shouldReconcile := phaseChanged || beingDeleted
+
+					log.Info("Pod UPDATE event evaluation for rebalance controller",
+						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
+						"phaseChanged", phaseChanged,
+						"beingDeleted", beingDeleted,
+						"oldPhase", oldPod.Status.Phase,
+						"newPhase", newPod.Status.Phase,
+						"shouldReconcile", shouldReconcile)
+
+					return shouldReconcile
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return true
+					pod := e.Object.(*corev1.Pod)
+					log := r.Log.WithValues("eventType", "POD_DELETE", "podName", pod.Name, "namespace", pod.Namespace)
+
+					hasSmartSchedulerAnnotation := pod.Annotations != nil &&
+						(pod.Annotations["smart-scheduler.io/processed"] != "" ||
+							pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+					log.Info("Pod DELETE event for rebalance controller",
+						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation)
+
+					return hasSmartSchedulerAnnotation
 				},
 			}),
 		).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 2,
+			MaxConcurrentReconciles: 1, // Reduce concurrency to avoid overlapping reconciliations
 		}).
 		Complete(r)
 }

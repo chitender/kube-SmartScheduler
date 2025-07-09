@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,8 +29,25 @@ type PodMutator struct {
 
 // Handle processes pod admission requests and applies smart scheduling logic
 func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	log := pm.Log.WithValues("pod", req.Name, "namespace", req.Namespace)
-	log.Info("Processing pod admission request")
+	startTime := time.Now()
+	log := pm.Log.WithValues("pod", req.Name, "namespace", req.Namespace, "uid", req.UID, "operation", req.Operation)
+
+	// Add detailed request logging for debugging
+	log.Info("=== WEBHOOK REQUEST START ===",
+		"requestUID", req.UID,
+		"kind", req.Kind.Kind,
+		"operation", req.Operation,
+		"userInfo", req.UserInfo,
+		"dryRun", req.DryRun,
+		"oldObject", len(req.OldObject.Raw) > 0,
+		"subResource", req.SubResource)
+
+	defer func() {
+		duration := time.Since(startTime)
+		log.Info("=== WEBHOOK REQUEST END ===",
+			"duration", duration.String(),
+			"durationMs", duration.Milliseconds())
+	}()
 
 	pod := &corev1.Pod{}
 	err := pm.decoder.Decode(req, pod)
@@ -37,6 +55,15 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 		log.Error(err, "Failed to decode pod")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
+
+	log.Info("Decoded pod details",
+		"podName", pod.Name,
+		"generateName", pod.GenerateName,
+		"ownerReferences", len(pod.OwnerReferences),
+		"existingAnnotations", len(pod.Annotations),
+		"existingLabels", len(pod.Labels),
+		"hasNodeSelector", len(pod.Spec.NodeSelector) > 0,
+		"hasAffinity", pod.Spec.Affinity != nil)
 
 	// Skip if pod already has smart-scheduler annotations (to avoid infinite loops)
 	if pod.Annotations != nil {
@@ -52,6 +79,17 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Allowed("")
 	}
 
+	// Log owner reference details
+	for i, ownerRef := range pod.OwnerReferences {
+		log.Info("Owner reference found",
+			"index", i,
+			"name", ownerRef.Name,
+			"kind", ownerRef.Kind,
+			"apiVersion", ownerRef.APIVersion,
+			"controller", ownerRef.Controller != nil && *ownerRef.Controller,
+			"blockOwnerDeletion", ownerRef.BlockOwnerDeletion != nil && *ownerRef.BlockOwnerDeletion)
+	}
+
 	// Find the parent Deployment by traversing owner references
 	deployment, err := pm.findParentDeployment(ctx, pod)
 	if err != nil {
@@ -65,14 +103,27 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Allowed("")
 	}
 
+	log.Info("Found parent deployment",
+		"deploymentName", deployment.Name,
+		"deploymentNamespace", deployment.Namespace,
+		"deploymentUID", deployment.UID,
+		"generation", deployment.Generation,
+		"replicas", deployment.Spec.Replicas)
+
 	// Check for smart scheduling annotations on the deployment
 	annotations := deployment.Annotations
 	if annotations == nil {
+		log.Info("Deployment has no annotations, allowing default scheduling")
 		return admission.Allowed("")
 	}
 
+	log.Info("Deployment annotations found",
+		"annotationCount", len(annotations),
+		"hasScheduleStrategy", annotations["smart-scheduler.io/schedule-strategy"] != "")
+
 	scheduleStrategy, exists := annotations["smart-scheduler.io/schedule-strategy"]
 	if !exists {
+		log.Info("No schedule strategy annotation found, allowing default scheduling")
 		return admission.Allowed("")
 	}
 
@@ -118,6 +169,7 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 	// Update placement state
 	appliedRuleKey := pm.getAppliedRuleKey(originalPod, pod, strategy)
 	if appliedRuleKey != "" {
+		log.Info("Updating placement state", "appliedRuleKey", appliedRuleKey)
 		err = pm.StateManager.IncrementPodCount(ctx, deployment, appliedRuleKey)
 		if err != nil {
 			log.Error(err, "Failed to update placement state, continuing without state update")
@@ -135,7 +187,8 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 	log.Info("Successfully applied smart scheduling",
 		"nodeSelector", pod.Spec.NodeSelector,
 		"hasAffinity", pod.Spec.Affinity != nil,
-		"appliedRule", appliedRuleKey)
+		"appliedRule", appliedRuleKey,
+		"patchSize", len(patch))
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, patch)
 }
