@@ -15,7 +15,7 @@ webhooks:
     service:
       name: {{ include "smart-scheduler.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /mutate-v1-pod
+      path: /mutate--v1-pod
     {{- if not .Values.certificates.certManager.enabled }}
     {{- if and .Values.certificates.manual.enabled .Values.certificates.manual.caCrt }}
     caBundle: {{ .Values.certificates.manual.caCrt | b64enc }}
