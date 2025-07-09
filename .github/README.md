@@ -78,14 +78,14 @@ After successful builds, images are available at:
 
 ### GitHub Container Registry (GHCR)
 ```bash
-# Latest from main branch
-docker pull ghcr.io/YOUR_GITHUB_USERNAME/kube-smartscheduler:main
+# Latest from main branch (note: repository name is automatically converted to lowercase)
+docker pull ghcr.io/chitender/kube-smartscheduler:main
 
 # Specific version
-docker pull ghcr.io/YOUR_GITHUB_USERNAME/kube-smartscheduler:v1.0.0
+docker pull ghcr.io/chitender/kube-smartscheduler:v1.0.0
 
 # For ARM64 specifically
-docker pull --platform linux/arm64 ghcr.io/YOUR_GITHUB_USERNAME/kube-smartscheduler:main
+docker pull --platform linux/arm64 ghcr.io/chitender/kube-smartscheduler:main
 ```
 
 ### Docker Hub (if configured)
@@ -184,6 +184,12 @@ helm lint helm/smart-scheduler/
 - The workflow now uses direct `gosec` installation for reliability
 - SARIF uploads are skipped for pull requests to avoid permission conflicts
 - Text output is displayed for PRs instead of SARIF upload
+
+**Repository name case issues:**
+- Docker registry names must be lowercase, but GitHub repository names can contain uppercase
+- The workflow automatically converts repository names to lowercase for Docker operations
+- Example: `chitender/kube-SmartScheduler` → `chitender/kube-smartscheduler`
+- This prevents "invalid reference format: repository name must be lowercase" errors
 
 ### Performance Optimization
 
