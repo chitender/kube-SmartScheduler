@@ -1,0 +1,48 @@
+{{- if .Values.webhook.enabled }}
+{{- if not .Values.certificates.certManager.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}-cert-generator
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "smart-scheduler.serviceAccountName" . }}
+      containers:
+      - name: cert-generator
+        image: alpine/openssl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Generating webhook certificates..."
+          
+          # Generate CA
+          openssl genrsa -out ca.key 2048
+          openssl req -new -x509 -key ca.key -out ca.crt -days 365 -subj "/CN=smart-scheduler-ca"
+          
+          # Generate server key and cert
+          openssl genrsa -out server.key 2048
+          openssl req -new -key server.key -out server.csr -subj "/CN={{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc"
+          openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 \
+            -extensions v3_req -extfile <(echo "[v3_req]"; echo "subjectAltName=DNS:{{ include "smart-scheduler.fullname" . }}-webhook-service,DNS:{{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }},DNS:{{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc,DNS:{{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local")
+          
+          # Create the secret
+          kubectl create secret tls {{ include "smart-scheduler.fullname" . }}-webhook-server-cert \
+            --cert=server.crt \
+            --key=server.key \
+            --namespace={{ .Release.Namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Certificates generated successfully!"
+{{- end }}
+{{- end }} 

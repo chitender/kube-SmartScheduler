@@ -66,16 +66,17 @@ webhook:
 certificates:
   # Enable cert-manager for automatic certificate management
   certManager:
-    enabled: true
+    enabled: false  # Disabled by default to avoid dependency
     issuer:
       # Create a self-signed issuer (for development)
       selfSigned: true
       # Or use an existing issuer
       # existing: letsencrypt-prod
       
-  # Manual certificate configuration (if cert-manager is disabled)
+  # Manual certificate configuration (enabled by default for simplicity)
   manual:
-    enabled: false
+    enabled: true
+    # Leave empty to auto-generate certificates via pre-install job
     tlsCrt: ""
     tlsKey: ""
     caCrt: ""
