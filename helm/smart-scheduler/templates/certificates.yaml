@@ -1,0 +1,73 @@
+{{- if .Values.webhook.enabled }}
+{{- if .Values.certificates.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}-selfsigned-issuer
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}-serving-cert
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+spec:
+  # Secret names are automatically generated from this
+  secretName: {{ include "smart-scheduler.fullname" . }}-webhook-server-cert
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  subject:
+    organizations:
+      - smart-scheduler
+  # The use of the common name field has been deprecated since 2000 and is
+  # discouraged from being used.
+  commonName: {{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  # At least one of a DNS Name, URI, or IP address is required.
+  dnsNames:
+    - {{ include "smart-scheduler.fullname" . }}-webhook-service
+    - {{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}
+    - {{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+    - {{ include "smart-scheduler.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  # Issuer references are always required.
+  issuerRef:
+    {{- if .Values.certificates.certManager.issuer.existing }}
+    name: {{ .Values.certificates.certManager.issuer.existing }}
+    {{- else }}
+    name: {{ include "smart-scheduler.fullname" . }}-selfsigned-issuer
+    {{- end }}
+    # We can reference ClusterIssuers by changing the kind here.
+    # The default value is Issuer (i.e. a locally namespaced Issuer)
+    kind: Issuer
+    # This is optional since cert-manager will default to this value however
+    # if you are using an external issuer, change this to that issuer group.
+    group: cert-manager.io
+{{- else if .Values.certificates.manual.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "smart-scheduler.fullname" . }}-webhook-server-cert
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.certificates.manual.tlsCrt | b64enc }}
+  tls.key: {{ .Values.certificates.manual.tlsKey | b64enc }}
+  {{- if .Values.certificates.manual.caCrt }}
+  ca.crt: {{ .Values.certificates.manual.caCrt | b64enc }}
+  {{- end }}
+{{- end }}
+{{- end }} 
