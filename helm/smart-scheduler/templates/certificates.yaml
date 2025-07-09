@@ -54,7 +54,11 @@ spec:
     # This is optional since cert-manager will default to this value however
     # if you are using an external issuer, change this to that issuer group.
     group: cert-manager.io
-{{- else if .Values.certificates.manual.enabled }}
+{{- else }}
+{{- /* Generate self-signed certificates using Helm's genSelfSignedCert function */ -}}
+{{- $altNames := list (printf "%s-webhook-service" (include "smart-scheduler.fullname" .)) (printf "%s-webhook-service.%s" (include "smart-scheduler.fullname" .) .Release.Namespace) (printf "%s-webhook-service.%s.svc" (include "smart-scheduler.fullname" .) .Release.Namespace) (printf "%s-webhook-service.%s.svc.cluster.local" (include "smart-scheduler.fullname" .) .Release.Namespace) }}
+{{- $ca := genCA "smart-scheduler-ca" 365 }}
+{{- $cert := genSignedCert (printf "%s-webhook-service.%s.svc" (include "smart-scheduler.fullname" .) .Release.Namespace) nil $altNames 365 $ca }}
 ---
 apiVersion: v1
 kind: Secret
@@ -64,10 +68,16 @@ metadata:
     {{- include "smart-scheduler.labels" . | nindent 4 }}
 type: kubernetes.io/tls
 data:
+  {{- if and .Values.certificates.manual.enabled .Values.certificates.manual.tlsCrt .Values.certificates.manual.tlsKey }}
   tls.crt: {{ .Values.certificates.manual.tlsCrt | b64enc }}
   tls.key: {{ .Values.certificates.manual.tlsKey | b64enc }}
   {{- if .Values.certificates.manual.caCrt }}
   ca.crt: {{ .Values.certificates.manual.caCrt | b64enc }}
+  {{- end }}
+  {{- else }}
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
   {{- end }}
 {{- end }}
 {{- end }} 

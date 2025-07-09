@@ -17,8 +17,13 @@ webhooks:
       namespace: {{ .Release.Namespace }}
       path: /mutate-v1-pod
     {{- if not .Values.certificates.certManager.enabled }}
-    {{- if .Values.certificates.manual.caCrt }}
+    {{- if and .Values.certificates.manual.enabled .Values.certificates.manual.caCrt }}
     caBundle: {{ .Values.certificates.manual.caCrt | b64enc }}
+    {{- else }}
+    {{- /* Use the generated CA certificate */ -}}
+    {{- $altNames := list (printf "%s-webhook-service" (include "smart-scheduler.fullname" .)) (printf "%s-webhook-service.%s" (include "smart-scheduler.fullname" .) .Release.Namespace) (printf "%s-webhook-service.%s.svc" (include "smart-scheduler.fullname" .) .Release.Namespace) (printf "%s-webhook-service.%s.svc.cluster.local" (include "smart-scheduler.fullname" .) .Release.Namespace) }}
+    {{- $ca := genCA "smart-scheduler-ca" 365 }}
+    caBundle: {{ $ca.Cert | b64enc }}
     {{- end }}
     {{- end }}
   rules:

@@ -73,10 +73,10 @@ certificates:
       # Or use an existing issuer
       # existing: letsencrypt-prod
       
-  # Manual certificate configuration (enabled by default for simplicity)
+  # Manual certificate configuration (optional - auto-generated if not provided)
   manual:
-    enabled: true
-    # Leave empty to auto-generate certificates via pre-install job
+    enabled: false  # Disabled by default - certificates are auto-generated
+    # Provide your own certificates if needed
     tlsCrt: ""
     tlsKey: ""
     caCrt: ""
