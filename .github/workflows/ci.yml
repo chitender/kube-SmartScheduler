@@ -74,14 +74,16 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
-    - name: Install Gosec
-      run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-
     - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: '-fmt sarif -out gosec.sarif ./...'
+      continue-on-error: true
+
+    - name: Generate text output
       run: |
-        echo "Running Gosec security scanner..."
-        gosec -fmt sarif -out gosec.sarif ./... 2>/dev/null || echo "Gosec completed with findings"
-        # Also generate text output for display
+        echo "Running Gosec security scanner for text output..."
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@v2.20.0
         gosec -fmt text ./... > gosec-results.txt 2>/dev/null || echo "Gosec text output generated"
       continue-on-error: true
 

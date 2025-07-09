@@ -171,7 +171,10 @@ func (r *PodPlacementPolicyController) hasHigherPriorityPolicy(deployment *appsv
 	}
 
 	currentPriority := int32(0)
-	fmt.Sscanf(priorityStr, "%d", &currentPriority)
+	if _, err := fmt.Sscanf(priorityStr, "%d", &currentPriority); err != nil {
+		// If parsing fails, treat as priority 0
+		currentPriority = 0
+	}
 
 	return currentPriority > policy.Spec.Priority
 }
@@ -253,7 +256,14 @@ func (r *PodPlacementPolicyController) convertStrategyToAnnotation(strategy smar
 		parts = append(parts, rulePart)
 	}
 
-	return fmt.Sprintf("%s", parts[0]) + ";" + fmt.Sprintf("%s", parts[1:]), nil
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	result := parts[0]
+	for _, part := range parts[1:] {
+		result += ";" + part
+	}
+	return result, nil
 }
 
 // calculateDeploymentDrift calculates current placement drift for a deployment
