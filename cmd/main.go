@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -170,6 +172,7 @@ func main() {
 	var certDir string
 	var enableDebugAPILogging bool
 	var showVersion bool
+	var watchNamespaces string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -180,6 +183,7 @@ func main() {
 	flag.StringVar(&certDir, "cert-dir", "/tmp/k8s-webhook-server/serving-certs/", "The directory containing the webhook server certificates.")
 	flag.BoolVar(&enableDebugAPILogging, "debug-api-requests", false, "Enable debug logging for all Kubernetes API requests.")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit.")
+	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces.")
 
 	opts := zap.Options{
 		Development: true,
@@ -208,9 +212,23 @@ func main() {
 		"probeAddr", probeAddr,
 		"webhookPort", webhookPort,
 		"enableLeaderElection", enableLeaderElection,
-		"enableDebugAPILogging", enableDebugAPILogging)
+		"enableDebugAPILogging", enableDebugAPILogging,
+		"watchNamespaces", watchNamespaces)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	// Parse watch namespaces
+	var namespaces []string
+	if watchNamespaces != "" {
+		namespaces = strings.Split(watchNamespaces, ",")
+		for i, ns := range namespaces {
+			namespaces[i] = strings.TrimSpace(ns)
+		}
+		setupLog.Info("Watching specific namespaces", "namespaces", namespaces)
+	} else {
+		setupLog.Info("Watching all namespaces")
+	}
+
+	// Configure manager options
+	managerOpts := ctrl.Options{
 		Scheme: scheme,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    webhookPort,
@@ -222,7 +240,28 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "smart-scheduler-leader",
-	})
+	}
+
+	// Set up namespace scoping if specific namespaces are requested
+	if len(namespaces) > 0 {
+		if len(namespaces) == 1 {
+			// Single namespace mode
+			managerOpts.Cache.DefaultNamespaces = map[string]cache.Config{
+				namespaces[0]: {},
+			}
+			setupLog.Info("Configured single namespace cache", "namespace", namespaces[0])
+		} else {
+			// Multi-namespace mode
+			nsMap := make(map[string]cache.Config)
+			for _, ns := range namespaces {
+				nsMap[ns] = cache.Config{}
+			}
+			managerOpts.Cache.DefaultNamespaces = nsMap
+			setupLog.Info("Configured multi-namespace cache", "namespaces", namespaces)
+		}
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)

@@ -64,6 +64,16 @@ spec:
         {{- if .Values.development.debugApiRequests }}
         - --debug-api-requests
         {{- end }}
+        {{- if .Values.multiNamespace.enabled }}
+        {{- if .Values.multiNamespace.watchNamespaces }}
+        - --watch-namespaces={{ join "," .Values.multiNamespace.watchNamespaces }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.multiNamespace.enabled }}
+        {{- if .Values.multiNamespace.watchNamespaces }}
+        - --watch-namespaces={{ join "," .Values.multiNamespace.watchNamespaces }}
+        {{- end }}
+        {{- end }}
         ports:
         {{- if .Values.operator.metrics.enabled }}
         - name: metrics
