@@ -177,20 +177,28 @@ func (pm *PodMutator) Handle(ctx context.Context, req admission.Request) admissi
 		}
 	}
 
-	// Create the patch
-	patch, err := createPatch(originalPod, pod)
+	// Marshal the modified pod object
+	modifiedPodBytes, err := json.Marshal(pod)
 	if err != nil {
-		log.Error(err, "Failed to create patch")
-		return pm.allowWithFallback(log, fmt.Sprintf("failed to create patch: %v", err))
+		log.Error(err, "Failed to marshal modified pod")
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to marshal pod: %v", err))
 	}
 
 	log.Info("Successfully applied smart scheduling",
 		"nodeSelector", pod.Spec.NodeSelector,
 		"hasAffinity", pod.Spec.Affinity != nil,
 		"appliedRule", appliedRuleKey,
-		"patchSize", len(patch))
+		"modifiedObjectSize", len(modifiedPodBytes))
 
-	return admission.PatchResponseFromRaw(req.Object.Raw, patch)
+	// Create JSON patch between original and modified pod
+	originalBytes, err := json.Marshal(originalPod)
+	if err != nil {
+		log.Error(err, "Failed to marshal original pod")
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to marshal original pod: %v", err))
+	}
+
+	// Return patch response
+	return admission.PatchResponseFromRaw(originalBytes, modifiedPodBytes)
 }
 
 // allowWithFallback allows the request with a warning annotation
@@ -224,15 +232,22 @@ func (pm *PodMutator) applyStrategyWithFallback(ctx context.Context, req admissi
 	pod.Annotations["smart-scheduler.io/processed"] = "true"
 	pod.Annotations["smart-scheduler.io/fallback-mode"] = "true"
 
-	// Create the patch
-	patch, err := createPatch(originalPod, pod)
+	// Marshal the modified pod object
+	modifiedPodBytes, err := json.Marshal(pod)
 	if err != nil {
-		log.Error(err, "Failed to create patch in fallback mode")
-		return pm.allowWithFallback(log, "failed to create patch")
+		log.Error(err, "Failed to marshal modified pod in fallback mode")
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to marshal pod: %v", err))
+	}
+
+	// Create JSON patch between original and modified pod
+	originalBytes, err := json.Marshal(originalPod)
+	if err != nil {
+		log.Error(err, "Failed to marshal original pod in fallback mode")
+		return pm.allowWithFallback(log, fmt.Sprintf("failed to marshal original pod: %v", err))
 	}
 
 	log.Info("Successfully applied smart scheduling in fallback mode", "nodeSelector", pod.Spec.NodeSelector)
-	return admission.PatchResponseFromRaw(req.Object.Raw, patch)
+	return admission.PatchResponseFromRaw(originalBytes, modifiedPodBytes)
 }
 
 // getAppliedRuleKey determines which rule was applied to the pod
@@ -324,107 +339,6 @@ func isNodeSelectorSubset(ruleSelector, podSelector map[string]string) bool {
 
 	for key, value := range ruleSelector {
 		if podValue, exists := podSelector[key]; !exists || podValue != value {
-			return false
-		}
-	}
-
-	return true
-}
-
-// createPatch creates a JSON patch from original pod to modified pod
-func createPatch(original, modified *corev1.Pod) ([]byte, error) {
-	// For simplicity, we'll create a manual patch
-	// In a production environment, you might want to use a proper JSON patch library
-	patch := []map[string]interface{}{}
-
-	// Add nodeSelector patch if it was modified
-	if !nodeSelectorsEqual(original.Spec.NodeSelector, modified.Spec.NodeSelector) {
-		if modified.Spec.NodeSelector == nil {
-			patch = append(patch, map[string]interface{}{
-				"op":   "remove",
-				"path": "/spec/nodeSelector",
-			})
-		} else {
-			patch = append(patch, map[string]interface{}{
-				"op":    "replace",
-				"path":  "/spec/nodeSelector",
-				"value": modified.Spec.NodeSelector,
-			})
-		}
-	}
-
-	// Add affinity patch if it was modified
-	if !affinityEqual(original.Spec.Affinity, modified.Spec.Affinity) {
-		if modified.Spec.Affinity == nil {
-			patch = append(patch, map[string]interface{}{
-				"op":   "remove",
-				"path": "/spec/affinity",
-			})
-		} else {
-			patch = append(patch, map[string]interface{}{
-				"op":    "replace",
-				"path":  "/spec/affinity",
-				"value": modified.Spec.Affinity,
-			})
-		}
-	}
-
-	// Add annotations patch
-	if !annotationsEqual(original.Annotations, modified.Annotations) {
-		if modified.Annotations == nil {
-			patch = append(patch, map[string]interface{}{
-				"op":   "remove",
-				"path": "/metadata/annotations",
-			})
-		} else {
-			patch = append(patch, map[string]interface{}{
-				"op":    "replace",
-				"path":  "/metadata/annotations",
-				"value": modified.Annotations,
-			})
-		}
-	}
-
-	return json.Marshal(patch)
-}
-
-// nodeSelectorsEqual compares two nodeSelector maps
-func nodeSelectorsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for key, value := range a {
-		if bValue, exists := b[key]; !exists || bValue != value {
-			return false
-		}
-	}
-
-	return true
-}
-
-// affinityEqual compares two affinity objects
-func affinityEqual(a, b *corev1.Affinity) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	// For simplicity, we'll do a deep comparison via JSON marshaling
-	aJSON, _ := json.Marshal(a)
-	bJSON, _ := json.Marshal(b)
-	return string(aJSON) == string(bJSON)
-}
-
-// annotationsEqual compares two annotation maps
-func annotationsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for key, value := range a {
-		if bValue, exists := b[key]; !exists || bValue != value {
 			return false
 		}
 	}

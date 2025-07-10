@@ -76,17 +76,30 @@ func (sm *StateManager) GetPlacementState(ctx context.Context, deployment *appsv
 	// Update strategy if it has changed
 	state.Strategy = strategy
 
-	// Refresh pod counts from actual pods
-	actualCounts, err := sm.getCurrentPodCounts(ctx, deployment, strategy)
-	if err != nil {
-		sm.Log.Error(err, "Failed to get actual pod counts, using cached counts")
-	} else {
-		state.PodCounts = actualCounts
-		state.TotalPods = 0
-		for _, count := range actualCounts {
-			state.TotalPods += count
+	// Only refresh pod counts if the state is older than 30 seconds
+	// This prevents race conditions during rapid pod creation
+	if time.Since(state.LastUpdated) > 30*time.Second {
+		actualCounts, err := sm.getCurrentPodCounts(ctx, deployment, strategy)
+		if err != nil {
+			sm.Log.Error(err, "Failed to get actual pod counts, using cached counts")
+		} else {
+			sm.Log.Info("Refreshing placement state from actual pods",
+				"deployment", deployment.Name,
+				"timeSinceLastUpdate", time.Since(state.LastUpdated),
+				"oldCounts", state.PodCounts,
+				"newCounts", actualCounts)
+			state.PodCounts = actualCounts
+			state.TotalPods = 0
+			for _, count := range actualCounts {
+				state.TotalPods += count
+			}
+			state.LastUpdated = time.Now()
 		}
-		state.LastUpdated = time.Now()
+	} else {
+		sm.Log.Info("Using cached placement state",
+			"deployment", deployment.Name,
+			"timeSinceLastUpdate", time.Since(state.LastUpdated),
+			"counts", state.PodCounts)
 	}
 
 	return &state, nil
