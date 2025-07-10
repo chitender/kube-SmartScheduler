@@ -203,6 +203,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
+      - name: Switch to main branch
+        run: |
+          git checkout main
+          git pull origin main
+
       - name: Extract version from tag
         id: version
         run: |
@@ -219,10 +224,22 @@ jobs:
           # Update values.yaml with new image tag
           sed -i "s/tag:.*/tag: \"${{ steps.version.outputs.version }}\"/" helm/smart-scheduler/values.yaml
 
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet helm/smart-scheduler/Chart.yaml helm/smart-scheduler/values.yaml; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected"
+          fi
+
       - name: Commit and push changes
+        if: steps.changes.outputs.has_changes == 'true'
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add helm/smart-scheduler/Chart.yaml helm/smart-scheduler/values.yaml
-          git commit -m "chore: Update Helm chart to version ${{ steps.version.outputs.version }}" || exit 0
-          git push origin HEAD:main 
+          git commit -m "chore: Update Helm chart to version ${{ steps.version.outputs.version }}"
+          git push origin main 
