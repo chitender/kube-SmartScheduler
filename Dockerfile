@@ -4,11 +4,17 @@ FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
 # Build arguments for multi-architecture support
 ARG TARGETOS
 ARG TARGETARCH
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 
 # Version build arguments
 ARG VERSION=unknown
 ARG COMMIT_HASH=unknown  
 ARG BUILD_DATE=unknown
+
+# Set default values for architecture if not provided (for local builds)
+ENV TARGETOS=${TARGETOS:-linux}
+ENV TARGETARCH=${TARGETARCH:-amd64}
 
 WORKDIR /workspace
 

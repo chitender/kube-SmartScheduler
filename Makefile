@@ -11,8 +11,8 @@ MINOR_VERSION = $(shell echo $(VERSION) | sed -E 's/$(SEMVER_REGEX)/\2/')
 PATCH_VERSION = $(shell echo $(VERSION) | sed -E 's/$(SEMVER_REGEX)/\3/')
 
 # Image registry and repository
-REGISTRY ?= docker.io
-REPOSITORY ?= smart-scheduler
+REGISTRY ?= ghcr.io
+REPOSITORY ?= chitender/kube-smartscheduler
 
 # Image URL to use all building/pushing image targets
 IMG ?= $(REGISTRY)/$(REPOSITORY):$(VERSION)

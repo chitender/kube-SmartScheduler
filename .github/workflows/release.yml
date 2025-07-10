@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: chitender/kube-smartscheduler
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper version detection
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract version information
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+        
+        # Parse semantic version
+        if [[ $VERSION =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[a-zA-Z0-9-]+)?(\+[a-zA-Z0-9-]+)?$ ]]; then
+          echo "MAJOR=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          echo "MINOR=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+          echo "PATCH=${BASH_REMATCH[3]}" >> $GITHUB_OUTPUT
+          echo "VALID_SEMVER=true" >> $GITHUB_OUTPUT
+        else
+          echo "VALID_SEMVER=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Generate image tags
+      id: tags
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        COMMIT_HASH="${{ steps.version.outputs.COMMIT_HASH }}"
+        
+        TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+        TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${COMMIT_HASH}"
+        
+        if [ "${{ steps.version.outputs.VALID_SEMVER }}" = "true" ]; then
+          MAJOR="${{ steps.version.outputs.MAJOR }}"
+          MINOR="${{ steps.version.outputs.MINOR }}"
+          TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${MAJOR}"
+          TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${MAJOR}.${MINOR}"
+        fi
+        
+        echo "TAGS=${TAGS}" >> $GITHUB_OUTPUT
+        echo "Generated tags: ${TAGS}"
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.tags.outputs.TAGS }}
+        build-args: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          COMMIT_HASH=${{ steps.version.outputs.COMMIT_HASH }}
+          BUILD_DATE=${{ steps.version.outputs.BUILD_DATE }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Generate release summary
+      run: |
+        echo "## 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ steps.version.outputs.COMMIT_HASH }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Build Date:** ${{ steps.version.outputs.BUILD_DATE }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Available Image Tags:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        IFS=',' read -ra TAGS_ARRAY <<< "${{ steps.tags.outputs.TAGS }}"
+        for tag in "${TAGS_ARRAY[@]}"; do
+          echo "- \`docker pull ${tag}\`" >> $GITHUB_STEP_SUMMARY
+        done
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🎯 Usage Examples:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "# Pull specific version" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Pull latest" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.version.outputs.VALID_SEMVER }}" = "true" ]; then
+          echo "# Pull major version (auto-updates)" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ steps.version.outputs.MAJOR }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "# Use in Kubernetes" >> $GITHUB_STEP_SUMMARY
+        echo "kubectl set image deployment/smart-scheduler manager=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY 
