@@ -74,16 +74,27 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
-    - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: '-fmt sarif -out gosec.sarif ./...'
+    - name: Install Security Tools
+      run: |
+        echo "Installing security scanners..."
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Run Go Vulnerability Check
+      run: |
+        echo "Running Go vulnerability scanner..."
+        govulncheck ./... || echo "Vulnerability check completed"
       continue-on-error: true
 
-    - name: Generate text output
+    - name: Run Gosec Security Scanner (SARIF)
+      run: |
+        echo "Running Gosec security scanner for SARIF output..."
+        gosec -fmt sarif -out gosec.sarif ./... || echo "Gosec SARIF output generated"
+      continue-on-error: true
+
+    - name: Run Gosec Security Scanner (Text)
       run: |
         echo "Running Gosec security scanner for text output..."
-        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@v2.20.0
         gosec -fmt text ./... > gosec-results.txt 2>/dev/null || echo "Gosec text output generated"
       continue-on-error: true
 
@@ -94,14 +105,23 @@ jobs:
         sarif_file: gosec.sarif
       continue-on-error: true
 
-    - name: Display Gosec Results
+    - name: Display Security Scan Results
       if: always()
       run: |
         echo "=== Security Scan Results ==="
+        echo ""
+        echo "--- Gosec Results ---"
         if [ -f gosec-results.txt ]; then
           cat gosec-results.txt
         else
-          echo "No security issues found or gosec output not available"
+          echo "No gosec issues found or output not available"
+        fi
+        echo ""
+        echo "--- SARIF Results ---"
+        if [ -f gosec.sarif ]; then
+          echo "SARIF file generated successfully ($(stat -c%s gosec.sarif) bytes)"
+        else
+          echo "No SARIF output generated"
         fi
         echo "=== End Security Results ==="
 
