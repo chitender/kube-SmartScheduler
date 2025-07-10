@@ -2,8 +2,8 @@ apiVersion: v2
 name: smart-scheduler
 description: A Kubernetes operator for intelligent pod placement with weighted scheduling strategies
 type: application
-version: 1.0.4
-appVersion: "1.0.4"
+version: 1.0.5
+appVersion: "1.0.5"
 keywords:
   - kubernetes
   - scheduler
