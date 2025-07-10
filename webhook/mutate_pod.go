@@ -473,11 +473,13 @@ func (pm *PodMutator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		pm.StateManager = NewStateManager(mgr.GetClient(), pm.Log.WithName("StateManager"))
 	}
 
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&corev1.Pod{}).
-		WithValidator(pm).
-		WithDefaulter(pm).
-		Complete()
+	// Register the mutating admission webhook
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &admission.Webhook{
+		Handler: pm,
+	})
+
+	pm.Log.Info("Webhook registered successfully", "path", "/mutate-v1-pod")
+	return nil
 }
 
 // InjectDecoder injects the decoder into the webhook
