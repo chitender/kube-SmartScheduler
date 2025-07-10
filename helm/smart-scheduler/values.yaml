@@ -226,5 +226,8 @@ development:
   # Enable debug logging
   debug: false
   
+  # Enable debug API request logging
+  debugApiRequests: false
+  
   # Disable webhook for local testing
   disableWebhook: false 

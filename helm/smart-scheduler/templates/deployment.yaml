@@ -56,15 +56,13 @@ spec:
         - --zap-log-level={{ .Values.logging.level }}
         {{- end }}
         {{- if .Values.logging.development }}
-        - --zap-development
+        - --zap-devel
         {{- end }}
         {{- if eq .Values.logging.encoder "console" }}
         - --zap-encoder=console
         {{- end }}
-        {{- if .Values.multiNamespace.enabled }}
-        {{- range .Values.multiNamespace.watchNamespaces }}
-        - --namespace={{ . }}
-        {{- end }}
+        {{- if .Values.development.debugApiRequests }}
+        - --debug-api-requests
         {{- end }}
         ports:
         {{- if .Values.operator.metrics.enabled }}
