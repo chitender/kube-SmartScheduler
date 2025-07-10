@@ -10,12 +10,12 @@ metadata:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "smart-scheduler.fullname" . }}-serving-cert
   {{- end }}
 webhooks:
-- name: mpod.kb.io
+- name: mpod.smart-scheduler.io
   clientConfig:
     service:
       name: {{ include "smart-scheduler.fullname" . }}-webhook-service
       namespace: {{ .Release.Namespace }}
-      path: /mutate--v1-pod
+      path: /mutate-v1-pod
     {{- if not .Values.certificates.certManager.enabled }}
     {{- if and .Values.certificates.manual.enabled .Values.certificates.manual.caCrt }}
     caBundle: {{ .Values.certificates.manual.caCrt | b64enc }}
@@ -34,7 +34,7 @@ webhooks:
   admissionReviewVersions: 
     {{- toYaml .Values.webhook.admissionReviewVersions | nindent 4 }}
   sideEffects: None
-  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  failurePolicy: Ignore
   {{- if .Values.webhook.excludeNamespaces }}
   namespaceSelector:
     matchExpressions:
