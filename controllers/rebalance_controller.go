@@ -457,132 +457,162 @@ func (r *RebalanceController) SetupWithManager(mgr ctrl.Manager) error {
 		r.StateManager = webhook.NewStateManager(mgr.GetClient(), r.Log.WithName("StateManager"))
 	}
 
+	// Create deployment-specific predicates
+	deploymentPredicates := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Type guard to ensure we only handle Deployments
+			deployment, ok := e.Object.(*appsv1.Deployment)
+			if !ok {
+				return false
+			}
+			log := r.Log.WithValues("eventType", "CREATE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
+
+			hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
+			log.Info("Deployment CREATE event for rebalance controller",
+				"hasScheduleStrategy", hasStrategy)
+
+			return hasStrategy
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// Type guard to ensure we only handle Deployments
+			oldDep, oldOk := e.ObjectOld.(*appsv1.Deployment)
+			newDep, newOk := e.ObjectNew.(*appsv1.Deployment)
+			if !oldOk || !newOk {
+				return false
+			}
+
+			log := r.Log.WithValues("eventType", "UPDATE", "deploymentName", newDep.Name, "namespace", newDep.Namespace)
+
+			// Check if deployment has scheduling strategy
+			oldStrategy := ""
+			newStrategy := ""
+			if oldDep.Annotations != nil {
+				oldStrategy = oldDep.Annotations["smart-scheduler.io/schedule-strategy"]
+			}
+			if newDep.Annotations != nil {
+				newStrategy = newDep.Annotations["smart-scheduler.io/schedule-strategy"]
+			}
+
+			hasStrategy := newStrategy != ""
+			strategyChanged := oldStrategy != newStrategy
+			generationChanged := oldDep.Generation != newDep.Generation
+			statusChanged := oldDep.Status.ReadyReplicas != newDep.Status.ReadyReplicas ||
+				oldDep.Status.AvailableReplicas != newDep.Status.AvailableReplicas
+
+			shouldReconcile := hasStrategy && (strategyChanged || generationChanged || statusChanged)
+
+			log.Info("Deployment UPDATE event evaluation for rebalance controller",
+				"hasStrategy", hasStrategy,
+				"strategyChanged", strategyChanged,
+				"generationChanged", generationChanged,
+				"statusChanged", statusChanged,
+				"oldStrategy", oldStrategy,
+				"newStrategy", newStrategy,
+				"oldGeneration", oldDep.Generation,
+				"newGeneration", newDep.Generation,
+				"oldReadyReplicas", oldDep.Status.ReadyReplicas,
+				"newReadyReplicas", newDep.Status.ReadyReplicas,
+				"shouldReconcile", shouldReconcile)
+
+			return shouldReconcile
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Type guard to ensure we only handle Deployments
+			deployment, ok := e.Object.(*appsv1.Deployment)
+			if !ok {
+				return false
+			}
+			log := r.Log.WithValues("eventType", "DELETE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
+
+			hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
+			log.Info("Deployment DELETE event for rebalance controller",
+				"hasScheduleStrategy", hasStrategy)
+
+			return hasStrategy
+		},
+	}
+
+	// Create pod-specific predicates
+	podPredicates := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Type guard to ensure we only handle Pods
+			pod, ok := e.Object.(*corev1.Pod)
+			if !ok {
+				return false
+			}
+			log := r.Log.WithValues("eventType", "POD_CREATE", "podName", pod.Name, "namespace", pod.Namespace)
+
+			hasSmartSchedulerAnnotation := pod.Annotations != nil &&
+				(pod.Annotations["smart-scheduler.io/processed"] != "" ||
+					pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+			log.Info("Pod CREATE event for rebalance controller",
+				"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
+				"hasOwnerRef", len(pod.OwnerReferences) > 0)
+
+			return hasSmartSchedulerAnnotation
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// Type guard to ensure we only handle Pods
+			oldPod, oldOk := e.ObjectOld.(*corev1.Pod)
+			newPod, newOk := e.ObjectNew.(*corev1.Pod)
+			if !oldOk || !newOk {
+				return false
+			}
+
+			log := r.Log.WithValues("eventType", "POD_UPDATE", "podName", newPod.Name, "namespace", newPod.Namespace)
+
+			// Only care about smart scheduler managed pods
+			hasSmartSchedulerAnnotation := newPod.Annotations != nil &&
+				(newPod.Annotations["smart-scheduler.io/processed"] != "" ||
+					newPod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+			if !hasSmartSchedulerAnnotation {
+				return false
+			}
+
+			// Only trigger on significant status changes
+			phaseChanged := oldPod.Status.Phase != newPod.Status.Phase
+			beingDeleted := newPod.DeletionTimestamp != nil && oldPod.DeletionTimestamp == nil
+
+			shouldReconcile := phaseChanged || beingDeleted
+
+			log.Info("Pod UPDATE event evaluation for rebalance controller",
+				"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
+				"phaseChanged", phaseChanged,
+				"beingDeleted", beingDeleted,
+				"oldPhase", oldPod.Status.Phase,
+				"newPhase", newPod.Status.Phase,
+				"shouldReconcile", shouldReconcile)
+
+			return shouldReconcile
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Type guard to ensure we only handle Pods
+			pod, ok := e.Object.(*corev1.Pod)
+			if !ok {
+				return false
+			}
+			log := r.Log.WithValues("eventType", "POD_DELETE", "podName", pod.Name, "namespace", pod.Namespace)
+
+			hasSmartSchedulerAnnotation := pod.Annotations != nil &&
+				(pod.Annotations["smart-scheduler.io/processed"] != "" ||
+					pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
+
+			log.Info("Pod DELETE event for rebalance controller",
+				"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation)
+
+			return hasSmartSchedulerAnnotation
+		},
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}).
-		WithEventFilter(predicate.Funcs{
-			CreateFunc: func(e event.CreateEvent) bool {
-				deployment := e.Object.(*appsv1.Deployment)
-				log := r.Log.WithValues("eventType", "CREATE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
-
-				hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
-				log.Info("Deployment CREATE event for rebalance controller",
-					"hasScheduleStrategy", hasStrategy)
-
-				return hasStrategy
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldDep := e.ObjectOld.(*appsv1.Deployment)
-				newDep := e.ObjectNew.(*appsv1.Deployment)
-
-				log := r.Log.WithValues("eventType", "UPDATE", "deploymentName", newDep.Name, "namespace", newDep.Namespace)
-
-				// Check if deployment has scheduling strategy
-				oldStrategy := ""
-				newStrategy := ""
-				if oldDep.Annotations != nil {
-					oldStrategy = oldDep.Annotations["smart-scheduler.io/schedule-strategy"]
-				}
-				if newDep.Annotations != nil {
-					newStrategy = newDep.Annotations["smart-scheduler.io/schedule-strategy"]
-				}
-
-				hasStrategy := newStrategy != ""
-				strategyChanged := oldStrategy != newStrategy
-				generationChanged := oldDep.Generation != newDep.Generation
-				statusChanged := oldDep.Status.ReadyReplicas != newDep.Status.ReadyReplicas ||
-					oldDep.Status.AvailableReplicas != newDep.Status.AvailableReplicas
-
-				shouldReconcile := hasStrategy && (strategyChanged || generationChanged || statusChanged)
-
-				log.Info("Deployment UPDATE event evaluation for rebalance controller",
-					"hasStrategy", hasStrategy,
-					"strategyChanged", strategyChanged,
-					"generationChanged", generationChanged,
-					"statusChanged", statusChanged,
-					"oldStrategy", oldStrategy,
-					"newStrategy", newStrategy,
-					"oldGeneration", oldDep.Generation,
-					"newGeneration", newDep.Generation,
-					"oldReadyReplicas", oldDep.Status.ReadyReplicas,
-					"newReadyReplicas", newDep.Status.ReadyReplicas,
-					"shouldReconcile", shouldReconcile)
-
-				return shouldReconcile
-			},
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				deployment := e.Object.(*appsv1.Deployment)
-				log := r.Log.WithValues("eventType", "DELETE", "deploymentName", deployment.Name, "namespace", deployment.Namespace)
-
-				hasStrategy := deployment.Annotations != nil && deployment.Annotations["smart-scheduler.io/schedule-strategy"] != ""
-				log.Info("Deployment DELETE event for rebalance controller",
-					"hasScheduleStrategy", hasStrategy)
-
-				return hasStrategy
-			},
-		}).
+		WithEventFilter(deploymentPredicates).
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.mapPodToDeployment),
-			builder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(e event.CreateEvent) bool {
-					pod := e.Object.(*corev1.Pod)
-					log := r.Log.WithValues("eventType", "POD_CREATE", "podName", pod.Name, "namespace", pod.Namespace)
-
-					hasSmartSchedulerAnnotation := pod.Annotations != nil &&
-						(pod.Annotations["smart-scheduler.io/processed"] != "" ||
-							pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
-
-					log.Info("Pod CREATE event for rebalance controller",
-						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
-						"hasOwnerRef", len(pod.OwnerReferences) > 0)
-
-					return hasSmartSchedulerAnnotation
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					oldPod := e.ObjectOld.(*corev1.Pod)
-					newPod := e.ObjectNew.(*corev1.Pod)
-
-					log := r.Log.WithValues("eventType", "POD_UPDATE", "podName", newPod.Name, "namespace", newPod.Namespace)
-
-					// Only care about smart scheduler managed pods
-					hasSmartSchedulerAnnotation := newPod.Annotations != nil &&
-						(newPod.Annotations["smart-scheduler.io/processed"] != "" ||
-							newPod.Annotations["smart-scheduler.io/strategy-applied"] != "")
-
-					if !hasSmartSchedulerAnnotation {
-						return false
-					}
-
-					// Only trigger on significant status changes
-					phaseChanged := oldPod.Status.Phase != newPod.Status.Phase
-					beingDeleted := newPod.DeletionTimestamp != nil && oldPod.DeletionTimestamp == nil
-
-					shouldReconcile := phaseChanged || beingDeleted
-
-					log.Info("Pod UPDATE event evaluation for rebalance controller",
-						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation,
-						"phaseChanged", phaseChanged,
-						"beingDeleted", beingDeleted,
-						"oldPhase", oldPod.Status.Phase,
-						"newPhase", newPod.Status.Phase,
-						"shouldReconcile", shouldReconcile)
-
-					return shouldReconcile
-				},
-				DeleteFunc: func(e event.DeleteEvent) bool {
-					pod := e.Object.(*corev1.Pod)
-					log := r.Log.WithValues("eventType", "POD_DELETE", "podName", pod.Name, "namespace", pod.Namespace)
-
-					hasSmartSchedulerAnnotation := pod.Annotations != nil &&
-						(pod.Annotations["smart-scheduler.io/processed"] != "" ||
-							pod.Annotations["smart-scheduler.io/strategy-applied"] != "")
-
-					log.Info("Pod DELETE event for rebalance controller",
-						"hasSmartSchedulerAnnotation", hasSmartSchedulerAnnotation)
-
-					return hasSmartSchedulerAnnotation
-				},
-			}),
+			builder.WithPredicates(podPredicates),
 		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: 1, // Reduce concurrency to avoid overlapping reconciliations
