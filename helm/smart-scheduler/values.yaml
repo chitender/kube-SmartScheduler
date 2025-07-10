@@ -10,7 +10,7 @@ image:
   repository: chitender/kube-smartscheduler  # Note: repository name is lowercase for Docker compatibility
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "1.0.6"
+  tag: "1.0.7"
   
   # Multi-architecture support
   platform: ""  # Leave empty for auto-detection, or specify: linux/amd64, linux/arm64
