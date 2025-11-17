@@ -15,6 +15,11 @@ sources:
   - https://github.com/kube-smartscheduler/smart-scheduler
 maintainers:
   - name: SmartScheduler Team
-    email: team@smartscheduler.io
+    email: chitenderkumar.16@gmail.com
 annotations:
-  category: Infrastructure 
+  category: Infrastructure
+dependencies:
+  - name: cert-manager
+    version: "1.18.2"
+    repository: "https://charts.jetstack.io"
+    condition: cert-manager.enabled 

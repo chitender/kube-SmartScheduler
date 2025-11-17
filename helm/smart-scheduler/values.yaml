@@ -230,4 +230,92 @@ development:
   debugApiRequests: false
   
   # Disable webhook for local testing
-  disableWebhook: false 
+  disableWebhook: false
+
+# cert-manager subchart configuration
+# This section configures the cert-manager dependency chart
+cert-manager:
+  # Enable or disable cert-manager installation
+  # Set to false if cert-manager is already installed in the cluster
+  enabled: true
+  
+  # Global configuration
+  global:
+    # Image pull secrets for cert-manager components
+    imagePullSecrets: []
+    # Common labels applied to all cert-manager resources
+    commonLabels: {}
+  
+  # Node selector for cert-manager pods
+  nodeSelector: {}
+  
+  # Tolerations for cert-manager pod scheduling
+  tolerations: []
+  
+  # Install CRDs (Custom Resource Definitions)
+  # Set to false if CRDs are already installed
+  installCRDs: true
+  
+  # Image configuration
+  image:
+    # Container registry to pull the manager image from
+    registry: quay.io
+    
+    # Container image for the cert-manager controller
+    repository: jetstack/cert-manager-controller
+    
+    # Override the image tag to deploy
+    # If no value is set, the chart's appVersion is used
+    tag: "v1.18.2"
+    
+    # Setting a digest will override any tag
+    # digest: ""
+    
+    # Kubernetes imagePullPolicy on Deployment
+    pullPolicy: IfNotPresent
+  
+  # Webhook configuration
+  webhook:
+    # Webhook image configuration
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-webhook
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  
+  # CA Injector configuration
+  cainjector:
+    # CA Injector image configuration
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-cainjector
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  
+  # Startup API check configuration
+  startupapicheck:
+    # Startup API check image configuration
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-ctl
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  
+  # Resource limits and requests for cert-manager components
+  resources: {}
+  
+  # Security context for cert-manager pods
+  securityContext: {}
+  
+  # Pod security context
+  podSecurityContext: {}
+  
+  # Service account configuration
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  
+  # Additional configuration can be added here
+  # Refer to cert-manager chart values for full options:
+  # https://github.com/cert-manager/cert-manager/tree/master/deploy/charts/cert-manager 
