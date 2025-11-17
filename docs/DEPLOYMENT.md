@@ -216,9 +216,9 @@ spec:
     server: {{ .Values.kubernetesServer }}
     namespace: monitoring
   source:
-    path: charts/smart-scheduler
-    repoURL: https://gitlab.innovaccer.com/infrastructure/azure-helm-charts.git
-    targetRevision: v1-auth
+    path: helm/smart-scheduler
+    repoURL: https://github.com/chitender/kube-SmartScheduler
+    targetRevision: main
     helm:
       values: |
         # cert-manager configuration
@@ -253,7 +253,7 @@ spec:
 
         # Smart Scheduler configuration
         image:
-          registry: 728921286627.dkr.ecr.us-east-1.amazonaws.com
+          registry: ghcr.io/chitender
           repository: kube-smartscheduler
           pullPolicy: IfNotPresent
           tag: "v1.0.8"
