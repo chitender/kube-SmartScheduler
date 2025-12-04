@@ -7,7 +7,7 @@
    1. Definitions.
 
       "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
+      and distribution as defined by Sections 1 through 10 of this document.
 
       "Licensor" shall mean the copyright owner or entity authorized by
       the copyright owner that is granting the License.
@@ -63,14 +63,88 @@
       on behalf of whom a Contribution has been received by Licensor and
       subsequently incorporated within the Work.
 
+      "Commercial Use" shall mean any use of the Work or Derivative Works
+      that is intended for or directed toward commercial advantage or private
+      monetary compensation through offering the Work to third parties,
+      including but not limited to:
+      (a) using the Work as part of a commercial product or service offered
+          to third parties;
+      (b) offering the Work or Derivative Works as a commercial service to
+          third parties;
+      (c) incorporating the Work into software that is sold or licensed
+          for a fee to third parties;
+      (d) using the Work to provide services to third parties for
+          compensation;
+      (e) reselling, redistributing, or sublicensing the Work as part of
+          a commercial offering to third parties.
+
+      "Commercial Use" does NOT include:
+      (i) internal use within an organization for its own operations,
+          including production systems, cost optimization, and internal
+          infrastructure management;
+      (ii) using the Work to optimize cloud costs or infrastructure
+           within your own organization;
+      (iii) deploying the Work in internal production environments for
+            your organization's own business operations;
+      (iv) any use that does not involve offering the Work as a product
+           or service to third parties.
+
    2. Grant of Copyright License. Subject to the terms and conditions of
       this License, each Contributor hereby grants to You a perpetual,
       worldwide, non-exclusive, no-charge, royalty-free, irrevocable
       copyright license to reproduce, prepare Derivative Works of,
       publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
+      Work and such Derivative Works in Source or Object form, PROVIDED
+      THAT such use is not Commercial Use as defined in Section 1, or
+      that You have obtained explicit written permission from the Licensor
+      for such Commercial Use, or that You have entered into a separate
+      commercial license agreement with the Licensor.
 
-   3. Grant of Patent License. Subject to the terms and conditions of
+   3. Commercial Use Restrictions.
+
+      (a) You may NOT use the Work or any Derivative Works for Commercial
+          Use without first obtaining explicit written permission from the
+          Licensor or entering into a separate commercial license agreement.
+
+      (b) To obtain permission for Commercial Use, You must contact the
+          Licensor at: chitenderkumar.16@gmail.com
+
+      (c) The Licensor reserves the right to grant or deny permission for
+          Commercial Use at their sole discretion.
+
+      (d) If You are granted permission for Commercial Use, such permission
+          may be subject to additional terms and conditions, including but
+          not limited to payment of license fees, attribution requirements,
+          or other restrictions as specified by the Licensor.
+
+      (e) For the avoidance of doubt, the following uses are considered
+          Commercial Use and require permission:
+          - Using the Work as part of a SaaS (Software as a Service)
+            offering to third parties
+          - Incorporating the Work into a commercial product or platform
+            sold or licensed to third parties
+          - Offering consulting or support services based on the Work to
+            third parties
+          - Reselling or redistributing the Work as part of a commercial
+            product or service
+          - Using the Work to provide managed services to third parties
+
+      (f) The following uses are NOT considered Commercial Use and are
+          permitted without additional permission:
+          - Personal or educational use
+          - Internal use within any organization (including commercial
+            enterprises) for their own operations and infrastructure
+          - Using the Work in internal production systems to optimize
+            cloud costs and infrastructure
+          - Deploying the Work within your organization's Kubernetes
+            clusters for internal workload management
+          - Internal use within a non-profit organization
+          - Contributing code back to the project
+          - Using the Work for research or academic purposes
+          - Using the Work in open-source projects that are freely
+            available to the public
+
+   4. Grant of Patent License. Subject to the terms and conditions of
       this License, each Contributor hereby grants to You a perpetual,
       worldwide, non-exclusive, no-charge, royalty-free, irrevocable
       (except as stated in this section) patent license to make, have made,
@@ -86,7 +160,7 @@
       granted to You under this License for that Work shall terminate
       as of the date such litigation is filed.
 
-   4. Redistribution. You may reproduce and distribute copies of the
+   5. Redistribution. You may reproduce and distribute copies of the
       Work or Derivative Works thereof in any medium, with or without
       modifications, and in Source or Object form, provided that You
       meet the following conditions:
@@ -120,6 +194,10 @@
           that such additional attribution notices cannot be construed
           as modifying the License.
 
+      (e) You may NOT redistribute the Work or Derivative Works for
+          Commercial Use without explicit written permission from the
+          Licensor or a separate commercial license agreement.
+
       You may add Your own copyright statement to Your modifications and
       may provide additional or different license terms and conditions
       for use, reproduction, or distribution of Your modifications, or
@@ -127,7 +205,7 @@
       reproduction, and distribution of the Work otherwise complies with
       the conditions stated in this License.
 
-   5. Submission of Contributions. Unless You explicitly state otherwise,
+   6. Submission of Contributions. Unless You explicitly state otherwise,
       any Contribution intentionally submitted for inclusion in the Work
       by You to the Licensor shall be under the terms and conditions of
       this License, without any additional terms or conditions.
@@ -135,12 +213,12 @@
       the terms of any separate license agreement you may have executed
       with Licensor regarding such Contributions.
 
-   6. Trademarks. This License does not grant permission to use the trade
+   7. Trademarks. This License does not grant permission to use the trade
       names, trademarks, service marks, or product names of the Licensor,
       except as required for reasonable and customary use in describing the
       origin of the Work and reproducing the content of the NOTICE file.
 
-   7. Disclaimer of Warranty. Unless required by applicable law or
+   8. Disclaimer of Warranty. Unless required by applicable law or
       agreed to in writing, Licensor provides the Work (and each
       Contributor provides its Contributions) on an "AS IS" BASIS,
       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
@@ -150,7 +228,7 @@
       appropriateness of using or redistributing the Work and assume any
       risks associated with Your exercise of permissions under this License.
 
-   8. Limitation of Liability. In no event and under no legal theory,
+   9. Limitation of Liability. In no event and under no legal theory,
       whether in tort (including negligence), contract, or otherwise,
       unless required by applicable law (such as deliberate and grossly
       negligent acts) or agreed to in writing, shall any Contributor be
@@ -162,22 +240,20 @@
       other commercial damages or losses), even if such Contributor
       has been advised of the possibility of such damages.
 
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
+  10. Commercial License Inquiries. For inquiries regarding commercial
+      licensing, please contact:
+
+      Email: chitenderkumar.16@gmail.com
+
+      The Licensor will respond to commercial license inquiries in a
+      timely manner and may provide additional terms and conditions for
+      commercial use.
 
    END OF TERMS AND CONDITIONS
 
-   APPENDIX: How to apply the Apache License to your work.
+   APPENDIX: How to apply this License to your work.
 
-      To apply the Apache License to your work, attach the following
+      To apply this License to your work, attach the following
       boilerplate notice, with the fields enclosed by brackets "[]"
       replaced with your own identifying information. (Don't include
       the brackets!)  The text should be enclosed in the appropriate
@@ -186,9 +262,10 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright [yyyy] [name of copyright owner]
+   Copyright 2024 SmartScheduler Contributors
 
-   Licensed under the Apache License, Version 2.0 (the "License");
+   Licensed under the Apache License, Version 2.0 with Commercial Use
+   Restrictions (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
 
@@ -197,5 +274,15 @@
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+   COMMERCIAL USE RESTRICTION: This software is free to use for
+   non-commercial purposes and for internal use within organizations
+   (including production systems, cost optimization, and infrastructure
+   management). For commercial use involving offering this software as a
+   product or service to third parties, you must obtain explicit written
+   permission from the copyright owner or enter into a separate commercial
+   license agreement. Contact: chitenderkumar.16@gmail.com for commercial
+   licensing inquiries.
+
    See the License for the specific language governing permissions and
    limitations under the License.

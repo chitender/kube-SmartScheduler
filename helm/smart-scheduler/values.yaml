@@ -307,9 +307,6 @@ cert-manager:
   # Security context for cert-manager pods
   securityContext: {}
   
-  # Pod security context
-  podSecurityContext: {}
-  
   # Service account configuration
   serviceAccount:
     create: true

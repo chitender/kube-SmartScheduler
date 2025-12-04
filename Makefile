@@ -286,4 +286,52 @@ generate-certs: ## Generate self-signed certificates for webhook
 	openssl req -new -x509 -key config/certs/ca.key -out config/certs/ca.crt -days 365 -subj "/CN=smart-scheduler-ca"
 	openssl genrsa -out config/certs/server.key 2048
 	openssl req -new -key config/certs/server.key -out config/certs/server.csr -subj "/CN=smart-scheduler-webhook-service.smart-scheduler-system.svc"
-	openssl x509 -req -in config/certs/server.csr -CA config/certs/ca.crt -CAkey config/certs/ca.key -CAcreateserial -out config/certs/server.crt -days 365 
+	openssl x509 -req -in config/certs/server.csr -CA config/certs/ca.crt -CAkey config/certs/ca.key -CAcreateserial -out config/certs/server.crt -days 365
+
+##@ Helm
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart
+	@echo "Linting Helm chart..."
+	cd helm/smart-scheduler && helm lint . --debug
+
+.PHONY: helm-template
+helm-template: ## Render Helm chart templates for validation
+	@echo "Rendering Helm chart templates..."
+	cd helm/smart-scheduler && helm template smart-scheduler . --debug
+
+.PHONY: helm-template-test
+helm-template-test: ## Render Helm chart templates with test values
+	@echo "Rendering Helm chart templates with test values..."
+	cd helm/smart-scheduler && helm template smart-scheduler . -f test-values.yaml --debug
+
+.PHONY: helm-dependency-update
+helm-dependency-update: ## Update Helm chart dependencies
+	@echo "Updating Helm chart dependencies..."
+	cd helm/smart-scheduler && helm dependency update
+
+.PHONY: helm-dry-run
+helm-dry-run: ## Perform dry-run installation of Helm chart
+	@echo "Performing dry-run installation..."
+	@bash scripts/test-helm.sh --dry-run
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart tests (validation, lint, template)
+	@echo "Running Helm chart tests..."
+	@bash scripts/test-helm.sh
+
+.PHONY: helm-install-test
+helm-install-test: ## Install Helm chart in test namespace and run tests
+	@echo "Installing Helm chart in test namespace..."
+	@bash scripts/test-helm.sh --install --test --verify
+
+.PHONY: helm-uninstall-test
+helm-uninstall-test: ## Uninstall Helm chart from test namespace
+	@echo "Uninstalling Helm chart from test namespace..."
+	@bash scripts/test-helm.sh --uninstall
+
+.PHONY: helm-package
+helm-package: ## Package the Helm chart
+	@echo "Packaging Helm chart..."
+	cd helm/smart-scheduler && helm package .
+	@echo "Chart packaged successfully" 

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-placement
+  namespace: smart-scheduler-test
+  annotations:
+    # Smart scheduler placement strategy:
+    # - base=3 guarantees 3 pods on desktop-worker2
+    # - weight=20 distributes 20 pods on desktop-worker
+    smart-scheduler.io/schedule-strategy: "base=3,weight=1,nodeSelector=kubernetes.io/hostname:desktop-worker2;weight=20,nodeSelector=kubernetes.io/hostname:desktop-worker"
+spec:
+  replicas: 23
+  selector:
+    matchLabels:
+      app: test-placement
+  template:
+    metadata:
+      labels:
+        app: test-placement
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+

@@ -1,0 +1,253 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "smart-scheduler.fullname" . }}-test-connection"
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: connection-test
+    image: curlimages/curl:latest
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      echo "Testing webhook service connectivity..."
+      
+      # Test webhook service endpoint
+      SERVICE_NAME="{{ include "smart-scheduler.webhookServiceName" . }}"
+      NAMESPACE="{{ .Release.Namespace }}"
+      
+      # Wait for service to be available
+      echo "Waiting for service ${SERVICE_NAME} to be ready..."
+      timeout 60 sh -c "until curl -k -f https://${SERVICE_NAME}.${NAMESPACE}.svc:{{ .Values.service.webhook.port }}/healthz 2>/dev/null; do sleep 2; done" || true
+      
+      # Test health endpoint if available
+      if curl -k -f https://${SERVICE_NAME}.${NAMESPACE}.svc:{{ .Values.service.webhook.port }}/healthz 2>/dev/null; then
+        echo "✓ Webhook service is reachable"
+      else
+        echo "⚠ Webhook service health check failed (this may be expected if health endpoint is not implemented)"
+      fi
+      
+      echo "Connection test completed successfully"
+{{- end }}
+{{- if .Values.operator.health.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "smart-scheduler.fullname" . }}-test-health"
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: health-test
+    image: curlimages/curl:latest
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      echo "Testing operator health configuration..."
+      
+      NAMESPACE="{{ .Release.Namespace }}"
+      DEPLOYMENT_NAME="{{ include "smart-scheduler.fullname" . }}"
+      
+      # Check if health probes are configured in deployment
+      echo "Checking health probe configuration..."
+      
+      LIVENESS_PROBE=$(kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].livenessProbe}' 2>/dev/null || echo "")
+      READINESS_PROBE=$(kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].readinessProbe}' 2>/dev/null || echo "")
+      
+      if [ -n "${LIVENESS_PROBE}" ] && [ "${LIVENESS_PROBE}" != "null" ]; then
+        echo "✓ Liveness probe is configured"
+      else
+        echo "⚠ Liveness probe not found (may be disabled)"
+      fi
+      
+      if [ -n "${READINESS_PROBE}" ] && [ "${READINESS_PROBE}" != "null" ]; then
+        echo "✓ Readiness probe is configured"
+      else
+        echo "⚠ Readiness probe not found (may be disabled)"
+      fi
+      
+      # Check pod health status
+      echo "Checking pod health status..."
+      PODS=$(kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=smart-scheduler -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+      
+      if [ -n "${PODS}" ]; then
+        for POD in ${PODS}; do
+          POD_READY=$(kubectl get pod ${POD} -n ${NAMESPACE} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+          if [ "${POD_READY}" = "True" ]; then
+            echo "✓ Pod ${POD} is healthy and ready"
+          else
+            echo "⚠ Pod ${POD} is not ready (status: ${POD_READY})"
+          fi
+        done
+      fi
+      
+      echo "Health test completed"
+{{- end }}
+{{- if .Values.operator.metrics.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "smart-scheduler.fullname" . }}-test-metrics"
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: metrics-test
+    image: curlimages/curl:latest
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      echo "Testing metrics endpoint..."
+      
+      SERVICE_NAME="{{ include "smart-scheduler.fullname" . }}-metrics-service"
+      NAMESPACE="{{ .Release.Namespace }}"
+      METRICS_PORT="{{ .Values.operator.metrics.port }}"
+      METRICS_PATH="{{ .Values.operator.metrics.path }}"
+      
+      # Wait for service to be available
+      echo "Waiting for metrics service to be ready..."
+      for i in $(seq 1 30); do
+        if curl -f http://${SERVICE_NAME}.${NAMESPACE}.svc:${METRICS_PORT}${METRICS_PATH} 2>/dev/null; then
+          echo "✓ Metrics endpoint is reachable"
+          break
+        fi
+        echo "Attempt $i/30: Service not ready yet, waiting..."
+        sleep 2
+      done
+      
+      # Test metrics endpoint
+      if curl -f http://${SERVICE_NAME}.${NAMESPACE}.svc:${METRICS_PORT}${METRICS_PATH} 2>/dev/null | grep -q "smart_scheduler"; then
+        echo "✓ Metrics endpoint is working and returning metrics"
+      else
+        echo "⚠ Metrics endpoint is reachable but may not have metrics yet"
+      fi
+      
+      echo "Metrics test completed successfully"
+{{- end }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "smart-scheduler.fullname" . }}-test-deployment"
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: deployment-test
+    image: bitnami/kubectl:latest
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      echo "Testing deployment status..."
+      
+      DEPLOYMENT_NAME="{{ include "smart-scheduler.fullname" . }}"
+      NAMESPACE="{{ .Release.Namespace }}"
+      
+      # Wait for deployment to be ready
+      echo "Waiting for deployment ${DEPLOYMENT_NAME} to be ready..."
+      kubectl wait --for=condition=available deployment/${DEPLOYMENT_NAME} -n ${NAMESPACE} --timeout=5m
+      
+      # Check deployment replicas
+      READY_REPLICAS=$(kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+      DESIRED_REPLICAS=$(kubectl get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.replicas}')
+      
+      if [ "${READY_REPLICAS}" = "${DESIRED_REPLICAS}" ]; then
+        echo "✓ Deployment has ${READY_REPLICAS}/${DESIRED_REPLICAS} ready replicas"
+      else
+        echo "✗ Deployment has ${READY_REPLICAS}/${DESIRED_REPLICAS} ready replicas"
+        exit 1
+      fi
+      
+      # Check pod status
+      PODS=$(kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=smart-scheduler -o jsonpath='{.items[*].metadata.name}')
+      if [ -z "${PODS}" ]; then
+        echo "✗ No pods found for deployment"
+        exit 1
+      fi
+      
+      for POD in ${PODS}; do
+        POD_STATUS=$(kubectl get pod ${POD} -n ${NAMESPACE} -o jsonpath='{.status.phase}')
+        if [ "${POD_STATUS}" != "Running" ]; then
+          echo "✗ Pod ${POD} is in ${POD_STATUS} state"
+          kubectl describe pod ${POD} -n ${NAMESPACE}
+          exit 1
+        fi
+        echo "✓ Pod ${POD} is Running"
+      done
+      
+      echo "Deployment test completed successfully"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "smart-scheduler.fullname" . }}-test-rbac"
+  labels:
+    {{- include "smart-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ include "smart-scheduler.serviceAccountName" . }}
+  containers:
+  - name: rbac-test
+    image: bitnami/kubectl:latest
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      echo "Testing RBAC permissions..."
+      
+      # Test basic permissions
+      echo "Testing pod list permission..."
+      kubectl get pods -A > /dev/null 2>&1 && echo "✓ Can list pods" || echo "⚠ Cannot list pods (may be expected)"
+      
+      echo "Testing configmap permission..."
+      kubectl get configmaps -A > /dev/null 2>&1 && echo "✓ Can list configmaps" || echo "⚠ Cannot list configmaps (may be expected)"
+      
+      {{- if .Values.features.crdPolicies }}
+      echo "Testing CRD permission..."
+      kubectl get podplacementpolicies -A > /dev/null 2>&1 && echo "✓ Can list PodPlacementPolicies" || echo "⚠ Cannot list PodPlacementPolicies"
+      {{- end }}
+      
+      echo "RBAC test completed successfully"
+

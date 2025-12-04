@@ -1,0 +1,136 @@
+# Test values file for Smart Scheduler Helm Chart
+# This file contains test configurations for validating the helm chart
+
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: chitender/kube-smartscheduler
+  pullPolicy: IfNotPresent
+  tag: "1.0.7"
+
+# Operator configuration
+operator:
+  leaderElection: true
+  metrics:
+    enabled: true
+    port: 8080
+    path: /metrics
+  health:
+    enabled: true
+    port: 8081
+    probePath: /healthz
+    readinessPath: /readyz
+
+# Webhook configuration
+webhook:
+  enabled: true
+  port: 9443
+  certDir: /tmp/k8s-webhook-server/serving-certs
+  failurePolicy: Ignore  # Use Ignore for testing to avoid blocking deployments
+  admissionReviewVersions:
+    - v1
+    - v1beta1
+  excludeNamespaces:
+    - kube-system
+    - kube-public
+    - cert-manager
+    - smart-scheduler-system
+
+# Certificate management
+certificates:
+  certManager:
+    enabled: true
+    issuer:
+      selfSigned: true
+  manual:
+    enabled: false
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Resource limits for testing
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Logging configuration for testing
+logging:
+  level: debug
+  development: true
+  encoder: console
+
+# Development mode for testing
+development:
+  enabled: true
+  debug: true
+  debugApiRequests: false
+  disableWebhook: false
+
+# Feature flags
+features:
+  crdPolicies: true
+  rebalancing: true
+  driftDetection: true
+  enhancedMetrics: true
+
+# RBAC
+rbac:
+  create: true
+  additionalRules: []
+
+# Multi-namespace support
+multiNamespace:
+  enabled: false
+  watchNamespaces: []
+
+# CRDs
+crds:
+  install: true
+  keep: true
+
+# cert-manager subchart configuration (minimal for testing)
+cert-manager:
+  enabled: true
+  installCRDs: true
+  global:
+    imagePullSecrets: []
+    commonLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  image:
+    registry: quay.io
+    repository: jetstack/cert-manager-controller
+    tag: "v1.18.2"
+    pullPolicy: IfNotPresent
+  webhook:
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-webhook
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  cainjector:
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-cainjector
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  startupapicheck:
+    image:
+      registry: quay.io
+      repository: jetstack/cert-manager-ctl
+      tag: "v1.18.2"
+      pullPolicy: IfNotPresent
+  resources: {}
+  securityContext: {}
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
