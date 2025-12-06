@@ -1,15 +1,22 @@
 # SmartScheduler
 
-A production-ready Kubernetes operator for intelligent pod placement with weighted scheduling strategies, automatic rebalancing, and centralized policy management.
+A Kubernetes operator for intelligent pod placement with weighted scheduling strategies, automatic rebalancing, and centralized policy management.
+
+> ⚠️ **Production Use**: While Smart Scheduler is functional and tested, production deployment requires careful consideration of architectural risks. See [Production Considerations](#-production-considerations) and [Architecture Risks](./docs/ARCHITECTURE_RISKS.md) before deploying in production environments.
 
 ## 🚀 Features
 
 ### Core Functionality
 - **Intelligent Pod Placement**: Weighted distribution across node types (on-demand/spot, zones, etc.)
 - **Base Count Guarantees**: Ensure minimum pods on preferred nodes before distribution
-- **Atomic State Management**: ConfigMap-based state tracking with conflict resolution
-- **Automatic Rebalancing**: Drift detection and corrective actions when placement deviates
+- **State Management**: ConfigMap-based state tracking with conflict resolution
+- **Automatic Rebalancing**: Drift detection and corrective actions when placement deviates (⚠️ see [Production Considerations](#-production-considerations))
 - **Enhanced Error Handling**: Graceful fallback to default scheduling on failures
+
+### Important Notes
+- Uses `nodeSelector` mutations (hard filters) - bypasses native scheduler scoring
+- Rebalancing can conflict with HPA, PDB, and rollout strategies - configure carefully
+- See [Architecture Risks](./docs/ARCHITECTURE_RISKS.md) for detailed considerations
 
 ### Advanced Features
 - **Pod Affinity/Anti-Affinity**: Beyond simple nodeSelector, support for complex placement rules
@@ -579,6 +586,42 @@ rebalancePolicy:
     days: ["Mon", "Wed", "Fri"]
     timezone: "UTC"
 ```
+
+## ⚠️ Production Considerations
+
+**Before deploying in production, please read:**
+
+- **[Architecture Risks](./docs/ARCHITECTURE_RISKS.md)** - Critical architectural considerations and limitations
+- **[Production Guide](./docs/PRODUCTION_GUIDE.md)** - Step-by-step production deployment with guardrails
+
+### Key Production Considerations
+
+1. **Native Scheduler Bypass**: Smart Scheduler uses `nodeSelector` (hard filters) which bypasses Kubernetes native scheduler scoring. This is intentional for explicit placement but may conflict with soft preferences.
+
+2. **Rebalancing Risks**: Rebalancing can delete pods and may conflict with:
+   - HPA (Horizontal Pod Autoscaler)
+   - PDB (Pod Disruption Budgets)
+   - Rollout strategies (blue-green, canary)
+   - Stateful workloads
+
+3. **State Management**: Uses ConfigMap-based state tracking. Monitor for conflicts in high-scale scenarios (500+ deployments).
+
+4. **Guardrails Required**: Configure:
+   - Namespace allowlist/denylist
+   - Opt-in labels for selective application
+   - Rate limits for rebalancing
+   - Opt-out mechanisms for critical workloads
+
+5. **Failure Policy**: Start with `failurePolicy: Ignore` for testing, move to `Fail` only after validation with proper monitoring.
+
+6. **Observability**: Ensure comprehensive metrics and alerting are in place before production use.
+
+**Recommended Approach:**
+- Start with opt-in mode (label-based)
+- Test with non-critical workloads first
+- Monitor closely for 1-2 weeks
+- Gradually expand after validation
+- Always protect critical workloads with opt-out annotations
 
 ## 🐛 Troubleshooting
 
