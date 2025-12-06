@@ -97,8 +97,8 @@ helm install cert-manager jetstack/cert-manager \
   --set installCRDs=true --version 1.18.2
 
 # Install Smart Scheduler
-git clone https://github.com/kube-smartscheduler/smart-scheduler.git
-cd smart-scheduler
+git clone https://github.com/chitender/kube-SmartScheduler.git
+cd kube-SmartScheduler
 
 helm install smart-scheduler ./helm/smart-scheduler \
   --namespace smart-scheduler-system --create-namespace \
@@ -309,8 +309,8 @@ Ready to try Smart Scheduler? Here's what you need:
 **Quick Start:**
 ```bash
 # Clone and install
-git clone https://github.com/kube-smartscheduler/smart-scheduler.git
-cd smart-scheduler
+git clone https://github.com/chitender/kube-SmartScheduler.git
+cd kube-SmartScheduler
 
 # Follow installation steps from README
 # Add placement strategy to your deployment
@@ -318,7 +318,7 @@ cd smart-scheduler
 ```
 
 **Resources:**
-- GitHub: [kube-smartscheduler/smart-scheduler](https://github.com/kube-smartscheduler/smart-scheduler)
+- GitHub: [chitender/kube-SmartScheduler](https://github.com/chitender/kube-SmartScheduler)
 - Documentation: [Architecture Risks](./docs/ARCHITECTURE_RISKS.md)
 - Production Guide: [Production Deployment Guide](./docs/PRODUCTION_GUIDE.md)
 
@@ -333,7 +333,7 @@ However, it's not a silver bullet. Understand the trade-offs:
 
 If your use case aligns with explicit placement requirements and you're willing to configure guardrails, Smart Scheduler can be a game-changer for cost optimization and workload distribution.
 
-**Have questions or want to contribute?** Check out the [GitHub repository](https://github.com/kube-smartscheduler/smart-scheduler) and open an issue or pull request!
+**Have questions or want to contribute?** Check out the [GitHub repository](https://github.com/chitender/kube-SmartScheduler) and open an issue or pull request!
 
 ---
 
