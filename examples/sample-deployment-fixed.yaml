@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+  namespace: default
+  annotations:
+    smart-scheduler.io/schedule-strategy: "base=1,weight=1,nodeSelector=kubernetes.azure.com/agentpool:application;weight=2,nodeSelector=kubernetes.azure.com/agentpool:appspot"
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      # REMOVED: nodeSelector that conflicts with Smart Scheduler
+      # The Smart Scheduler will handle node selection via the annotation
+      tolerations:
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      containers:
+      - name: web
+        image: nginx:1.21
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi 
